@@ -3,18 +3,15 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 
-// --- FIX: Configure environment variables ---
-// This MUST be at the top to make process.env available to the rest of the app
 dotenv.config({
   path: './.env' 
 });
-// ------------------------------------------
 
 const app = express();
 
 app.use(
   cors({
-    origin: "http://localhost:5173", // Your frontend URL
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     credentials: true,
   })
 );
@@ -24,14 +21,27 @@ app.get("/", (req, res) => {
 });
 
 // Middlewares
-app.use(express.json({ limit: "500mb" })); // A smaller limit is safer
-app.use(express.urlencoded({ extended: true, limit: "500mb" }));
+app.use(express.json({ limit: "500mb" })); 
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
 
-// Routes
+// --- Routes ---
 import userRouter from "./routes/rentuser.routes.js";
 import profileRouter from "./routes/rentuserprofiler.routes.js";
+// ADDED: Import host and vehicle routers
+import hostRouter from "./routes/host.routes.js";
+import hostProfileRouter from "./routes/hostprofile.route.js";
+import vehicleRouter from "./routes/vehicle.routes.js";
+
+
+// --- Route Declarations ---
 app.use("/api/v1/users", userRouter);
-app.use("/api/v1/users/profile/", profileRouter);
+app.use("/api/v1/users/profile", profileRouter);
+
+// ADDED: Use the new routers
+app.use("/api/v1/hosts", hostRouter);
+app.use("/api/v1/hosts/profile", hostProfileRouter);
+app.use("/api/v1/vehicles", vehicleRouter);
+
 
 export default app;
