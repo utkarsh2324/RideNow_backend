@@ -53,22 +53,24 @@ const userSchema = new Schema(
       default: false,
     },
     // ✅ Document details (DL, Aadhar, RC, Insurance)
-    verifiedDoc: {
-      docType: {
-        type: String,
-        enum: ["DL", "Aadhar", "RC", "Insurance"],
-        default: null,
+    verifiedDoc: [
+      {
+        docType: {
+          type: String,
+          enum: ["DL", "Aadhar"],
+          required: true,
+        },
+        docUrl: {
+          type: String,
+          required: true,
+        },
+        status: {
+          type: String,
+          enum: ["pending", "approved", "rejected"],
+          default: "pending",
+        },
       },
-      docUrl: {
-        type: String,
-        default: "",
-      },
-      status: {
-        type: String,
-        enum: ["pending", "approved", "rejected"],
-        default: "pending",
-      },
-    },
+    ],
     isBookedVehicle: {
       type:String,
       default:false

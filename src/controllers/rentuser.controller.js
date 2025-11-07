@@ -9,6 +9,7 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import validator from "validator";
 import { generateOtp } from "../utils/generateotp.js";
 import { sendEmail } from "../utils/sendemail.js";
+import axios from "axios";
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // ================= Normal SignUp=================
 const registerUser = asynchandler(async (req, res) => {
@@ -323,6 +324,197 @@ const getCurrentUser = asynchandler(async (req, res) => {
     .status(200)
     .json(new apiresponse(200, user, "Current User fetched successfully"));
 });
+/**
+ * 🔹 Verify Aadhar PDF via FastAPI and upload if valid
+ */
+const verifyAadhar = asynchandler(async (req, res) => {
+  if (!req.file) throw new apierror(400, "Aadhar PDF file is required");
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new apierror(404, "User not found");
+
+  // 🔹 Send PDF to FastAPI
+  const aadharBlob = new Blob([req.file.buffer], { type: "application/pdf" });
+  const formData = new FormData();
+  formData.append("file", aadharBlob, "aadhar.pdf");
+
+  const { data } = await axios.post(
+    "https://arjun9036-ridenow.hf.space/validate-aadhaar",
+    formData,
+    {
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      responseType: "text", // because FastAPI returns plain text
+    }
+  );
+  
+  
+  
+  // ✅ data is a plain string, so use it directly
+  const validation = typeof data === "string" ? data : JSON.stringify(data);
+  
+
+  if (validation.includes("✅ Aadhaar number") && validation.includes("valid and found")) {
+    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+
+    // 🔹 Check if Aadhar already exists in verifiedDoc[]
+    const existingIndex = user.verifiedDoc.findIndex(
+      (doc) => doc.docType === "Aadhar"
+    );
+
+    if (existingIndex !== -1) {
+      // Update existing Aadhar entry
+      user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
+      user.verifiedDoc[existingIndex].status = "approved";
+    } else {
+      // Add new Aadhar entry
+      user.verifiedDoc.push({
+        docType: "Aadhar",
+        docUrl: uploadResult.viewUrl,
+        status: "approved",
+      });
+    }
+
+    // 🔹 Mark docs verified if both DL + Aadhar approved
+    const hasDL = user.verifiedDoc.some(
+      (d) => d.docType === "DL" && d.status === "approved"
+    );
+    user.isDocVerified = hasDL;
+
+    await user.save();
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        {
+          docType: "Aadhar",
+          docUrl: uploadResult.secure_url,
+          validation,
+        },
+        "✅ Aadhaar verified and uploaded successfully"
+      )
+    );
+  } else {
+    return res
+      .status(200)
+      .json(
+        new apiresponse(200, { validation }, "⚠️ Aadhaar not found in database")
+      );
+  }
+});
+
+/**
+ * 🔹 Verify Driving Licence (DL) PDF via FastAPI and upload if valid
+ */
+const verifyDL = asynchandler(async (req, res) => {
+  if (!req.file) throw new apierror(400, "Driving Licence PDF file is required");
+
+  const user = await User.findById(req.user._id);
+  if (!user) throw new apierror(404, "User not found");
+
+  // 🔹 Convert the buffer into a Blob and FormData (like verifyAadhar)
+  const dlBlob = new Blob([req.file.buffer], { type: "application/pdf" });
+  const formData = new FormData();
+  formData.append("file", dlBlob, "dl.pdf");
+
+  // 🔹 Send to FastAPI validation endpoint
+  const { data } = await axios.post(
+    "https://arjun9036-ridenow.hf.space/validate-dl",
+    formData,
+    {
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      responseType: "text",
+    }
+  );
+
+  const validation = typeof data === "string" ? data : JSON.stringify(data);
+
+  // ✅ If DL is valid
+  if (validation.includes("Driving Licence") && validation.includes("valid and found")) {
+    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+
+    // 🔹 Update or push new DL record
+    const existingIndex = user.verifiedDoc.findIndex((doc) => doc.docType === "DL");
+
+    if (existingIndex !== -1) {
+      user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
+      user.verifiedDoc[existingIndex].status = "approved";
+    } else {
+      user.verifiedDoc.push({
+        docType: "DL",
+        docUrl: uploadResult.viewUrl,
+        status: "approved",
+      });
+    }
+
+    // 🔹 Mark user as fully verified if Aadhaar also approved
+    const hasAadhar = user.verifiedDoc.some(
+      (d) => d.docType === "Aadhar" && d.status === "approved"
+    );
+    user.isDocVerified = hasAadhar;
+
+    await user.save();
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        {
+          docType: "DL",
+          docUrl: uploadResult.secure_url,
+          validation,
+        },
+        "✅ Driving Licence verified and uploaded successfully"
+      )
+    );
+  } else {
+    return res.status(200).json(
+      new apiresponse(200, { validation }, "⚠️ Driving Licence not found in database")
+    );
+  }
+});
+const getDocuments = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    const user = await User.findById(userId).select("verifiedDoc");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Separate Aadhar and DL from verifiedDoc array
+    const aadharDoc = user.verifiedDoc.find((doc) => doc.docType === "Aadhar");
+    const dlDoc = user.verifiedDoc.find((doc) => doc.docType === "DL");
+
+    res.status(200).json({
+      success: true,
+      documents: {
+        aadhar: aadharDoc?.docUrl || null,
+        aadharStatus: aadharDoc?.status || "pending",
+        dl: dlDoc?.docUrl || null,
+        dlStatus: dlDoc?.status || "pending",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching documents:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching documents",
+    });
+  }
+};
+
 export {
   uploadProfilePhoto,
   login,
@@ -334,5 +526,7 @@ export {
   changePassword,
   registerUser,
   verifyOtp,
-  getCurrentUser
+  getCurrentUser,
+  verifyAadhar,
+  verifyDL,getDocuments
 };

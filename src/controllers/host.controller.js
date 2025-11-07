@@ -7,6 +7,8 @@ import { apierror } from "../utils/apierror.js";
 import { apiresponse } from "../utils/apiresponse.js";
 import { generateOtp } from "../utils/generateotp.js";
 import { sendEmail } from "../utils/sendemail.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import axios from "axios";
 import validator from "validator";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -62,21 +64,62 @@ const loginHost = asynchandler(async (req, res) => {
 
 const googleLoginHost = asynchandler(async (req, res) => {
   const { token } = req.body;
-  if (!token) throw new apierror(400, "Google token is required");
-  const ticket = await client.verifyIdToken({ idToken: token, audience: process.env.GOOGLE_CLIENT_ID });
-  const { email, name, sub: googleId } = ticket.getPayload();
-  let host = await Host.findOne({ email });
-  if (!host) {
-    host = await Host.create({ email, name, googleId, authProvider: "google", isEmailVerified: true });
+  if (!token) {
+    throw new apierror(400, "Google token is required");
   }
-  const accessToken = host.generateAccessToken();
-  const refreshToken = host.generateRefreshToken();
-  host.refreshToken = refreshToken;
-  await host.save({ validateBeforeSave: false });
-  return res.status(200)
-    .cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: 'strict' })
-    .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: 'strict' })
-    .json(new apiresponse(200,{ host, accessToken },"Host logged in successfully"));
+
+  // Verify the token using the initialized client
+  const ticket = await client.verifyIdToken({
+    idToken: token,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+
+  const { email, name, picture, sub: googleId } = ticket.getPayload();
+
+  // Find or create the user in your database
+  let user = await Host.findOne({ email });
+
+  if (!user) {
+    user = await Host.create({
+      email,
+      fullName: name,
+      avatar: picture,
+      googleId: googleId,
+      authProvider: "google",
+      isEmailVerified: true,
+    });
+  }
+
+  // --- The rest of your logic to generate tokens and send cookies ---
+  const accessToken = user.generateAccessToken();
+  const refreshToken = user.generateRefreshToken();
+  user.refreshToken = refreshToken;
+  await user.save({ validateBeforeSave: false });
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  };
+
+  return res
+    .status(200)
+    .cookie("accessToken", accessToken, {
+      httpOnly: true,
+      sameSite: "lax",  // required for cross-site cookies
+      secure: false     // must be false in localhost
+    })
+    .cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false
+    })
+    .json(
+      new apiresponse(
+        200,
+        { user, accessToken },
+        "User logged in successfully"
+      )
+    );
 });
 
 const logoutHost = asynchandler(async (req, res) => {
@@ -150,9 +193,163 @@ const getCurrentHost = asynchandler(async (req, res) => {
   return res.status(200).json(new apiresponse(200, req.user, "Current Host fetched successfully"));
 });
 
+const verifyHostAadhar = asynchandler(async (req, res) => {
+  if (!req.file) throw new apierror(400, "Aadhar PDF file is required");
+
+  const user = await Host.findById(req.user._id);
+  if (!user) throw new apierror(404, "User not found");
+  const aadharBlob = new Blob([req.file.buffer], { type: 'application/pdf' });
+
+  const formData = new FormData();
+  formData.append('file', aadharBlob, 'aadhar.pdf');
+
+  const { data } = await axios.post(
+    "https://arjun9036-ridenow.hf.space/validate-aadhaar",
+    formData, 
+    {
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      responseType: "text",
+    }
+  );
+
+  // ✅ data is a plain string, so use it directly
+  const validation = typeof data === "string" ? data : JSON.stringify(data);
+  
+
+  // ✅ If valid
+  if (validation.includes("✅ Aadhaar number") && validation.includes("valid and found")) {
+   
+    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+
+    user.verifiedDoc.docType = "Aadhar";
+    user.verifiedDoc.docUrl = uploadResult.secure_url;
+    user.verifiedDoc.status = "approved";
+      user.isDocVerified = true;
+  
+
+    await user.save();
+
+    return res
+      .status(200)
+      .json(
+        new apiresponse(
+          200,
+          {
+            docType: "Aadhar",
+            docUrl: uploadResult.secure_url,
+            validation,
+          },
+          "✅ Aadhar verified and uploaded successfully"
+        )
+      );
+  } else {
+    return res
+      .status(200)
+      .json(new apiresponse(200, { validation }, "⚠️ Aadhar not found in database"));
+  }
+});
+
+
+const getHostDocuments = async (req, res) => {
+  try {
+    const hostId = req.user?._id;
+
+    if (!hostId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    // ✅ Fetch only verifiedDoc field
+    const host = await Host.findById(hostId).select("verifiedDoc");
+
+    if (!host) {
+      return res.status(404).json({
+        success: false,
+        message: "Host not found",
+      });
+    }
+
+    const { verifiedDoc } = host;
+
+    // ✅ Handle case when no document yet
+    if (!verifiedDoc || !verifiedDoc.docUrl) {
+      return res.status(200).json({
+        success: true,
+        document: {
+          aadhar: null,
+          aadharStatus: "pending",
+        },
+      });
+    }
+
+    // ✅ Return Aadhaar info directly
+    return res.status(200).json({
+      success: true,
+      document: {
+        aadhar: verifiedDoc.docUrl,
+        aadharStatus: verifiedDoc.status || "pending",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching host documents:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching host documents",
+    });
+  }
+};
+
+const HostUpiid=async(req,res)=>{
+    const {upiid}=req.body;
+    if (!upiid) throw new apierror(400, "Upi-id is required");
+    const host = await Host.findById(req.user._id);
+    if (!host) throw new apierror(404, "Host not found");
+    host.upiid=upiid;
+    await host.save();
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        { upiid:host.upiid },
+        "Upi-id store"
+      )
+    );
+}
+const getHostVehicles = asynchandler(async (req, res) => {
+  // ✅ Step 1: Get hostId from JWT middleware
+  const hostId = req.user._id;
+
+  // ✅ Step 2: Find host and populate their vehicles
+  const host = await Host.findById(hostId).populate({
+    path: "vehicles",
+    select: "scootyModel location photos isVerified isAvailable availableFrom availableTo createdAt", // choose only relevant fields
+  });
+
+  if (!host) {
+    throw new apierror(404, "Host not found");
+  }
+
+  // ✅ Step 3: If no vehicles
+  if (!host.vehicles || host.vehicles.length === 0) {
+    return res
+      .status(200)
+      .json(new apiresponse(200, [], "No vehicles hosted yet."));
+  }
+
+  // ✅ Step 4: Return hosted vehicles
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      host.vehicles,
+      "Hosted vehicles fetched successfully."
+    )
+  );
+});
 export {
   loginHost, googleLoginHost, refreshHostAccessToken, logoutHost,
   forgotHostPassword, resetHostPassword, changeHostPassword,
-  registerHost, verifyHostOtp, getCurrentHost,
+  registerHost, verifyHostOtp, getCurrentHost,verifyHostAadhar,getHostDocuments,HostUpiid,getHostVehicles
 };
 

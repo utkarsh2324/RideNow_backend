@@ -32,7 +32,7 @@ import profileRouter from "./routes/rentuserprofiler.routes.js";
 import hostRouter from "./routes/host.routes.js";
 import hostProfileRouter from "./routes/hostprofile.route.js";
 import vehicleRouter from "./routes/vehicle.routes.js";
-
+import hostNotificationRouter from "./routes/notification.routes.js";
 
 // --- Route Declarations ---
 app.use("/api/v1/users", userRouter);
@@ -42,6 +42,6 @@ app.use("/api/v1/users/profile", profileRouter);
 app.use("/api/v1/hosts", hostRouter);
 app.use("/api/v1/hosts/profile", hostProfileRouter);
 app.use("/api/v1/vehicles", vehicleRouter);
-
+app.use("/api/v1/hosts/notifications", hostNotificationRouter);
 
 export default app;

@@ -18,11 +18,7 @@ const vehicleSchema = new Schema(
       rc: {
         type: String, // URL from Cloudinary
         required: true,
-      },
-      insurance: {
-        type: String, // URL from Cloudinary
-        required: true,
-      },
+      }
     },
     isVerified: {
       type: Boolean,
@@ -35,21 +31,18 @@ const vehicleSchema = new Schema(
       trim: true,
       description: "e.g., 'Koramangala, Bangalore'",
     },
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+      description: "e.g., 'Koramangala, Bangalore'",
+    },
     photos: [
       {
         type: String, // URLs from Cloudinary
         required: true,
       },
     ],
-    // Specific dates for when the vehicle is available for rent
-    availableFrom: {
-      type: Date,
-      required: true,
-    },
-    availableTo: {
-      type: Date,
-      required: true,
-    },
     // You mentioned price will be handled by another model
     // price: { ... }
     isAvailable: {
@@ -70,6 +63,9 @@ const vehicleSchema = new Schema(
         }
       },
     ],
+    NumberOfBooking:{
+      type:Number
+    }
   },
   { timestamps: true }
 );

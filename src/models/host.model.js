@@ -17,6 +17,11 @@ const hostSchema = new Schema(
       lowercase: true,
       trim: true,
     },
+    upiid:{
+      type:String,
+      
+      unique:true
+    },
     phone: {
       type: String,
       unique: true,
@@ -24,7 +29,9 @@ const hostSchema = new Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return this.authProvider === "local";
+      },
     },
     dob: { 
       type: Date ,

@@ -40,21 +40,30 @@ const updateHostBasicInfo = asynchandler(async (req, res) => {
 
   return res.status(200).json(new apiresponse(200, { name: host.name, dob: host.dob }, "Basic info updated successfully"));
 });
-
 const updateHostMobileNumber = asynchandler(async (req, res) => {
   const { mobileNumber } = req.body;
+
+  // ✅ Validate Indian mobile number
   const mobileRegex = /^[6-9]\d{9}$/;
-  if (!mobileRegex.test(mobileNumber)) throw new apierror(400, "Invalid Indian mobile number");
+  if (!mobileRegex.test(mobileNumber)) {
+    throw new apierror(400, "Invalid Indian mobile number");
+  }
 
-  // FIX: Read from req.user
-  const host = await Host.findById(req.user._id);
-  if (!host) throw new apierror(404, "Host not found");
+  const user = await Host.findById(req.user._id);
+  if (!user) throw new apierror(404, "User not found");
 
-  host.phone = mobileNumber;
-  host.isPhoneVerified = false; 
-  await host.save({ validateBeforeSave: false });
+  user.phone = mobileNumber;       // ✅ save to "phone"
+  user.isPhoneVerified = true;    // ✅ mark as not verified yet
 
-  return res.status(200).json(new apiresponse(200, { phone: host.phone, isPhoneVerified: host.isPhoneVerified }, "Mobile number updated. Please verify."));
+  await user.save();
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      { phone: user.phone, isPhoneVerified: user.isPhoneVerified },
+      "Mobile number updated successfully"
+    )
+  );
 });
 
 export { uploadHostProfilePhoto, updateHostBasicInfo, updateHostMobileNumber };
