@@ -8,7 +8,7 @@ import {
     updateVehicle, 
     searchVehicles, 
     bookVehicle,
-    deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails
+    deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings
 } from "../controllers/vehicle.controller.js";
 
 const router = express.Router();
@@ -40,5 +40,8 @@ router.post("/book/:vehicleId", verifyJWT, bookVehicle);
 router.post("/verify-rc", verifyHostJWT, upload.single("rc"), verifyRC);
 router.patch("/:vehicleId/toggle-availability", verifyHostJWT, toggleVehicleAvailability);
 router.get("/details/:vehicleId", verifyHostJWT, getVehicleDetails);
+router.get("/userdetails/:vehicleId", verifyJWT, getVehicleDetails);
+router.post("/end/:vehicleId", verifyJWT, endBooking);
+router.get("/mybookings", verifyJWT, getUserBookings);
 export default router;
 

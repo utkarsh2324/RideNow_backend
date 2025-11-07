@@ -141,47 +141,113 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   });
 const searchVehicles = asynchandler(async (req, res) => {
     const { location } = req.query;
-    if (!location ) {
-        throw new apierror(400, "Location, fromDate, and toDate are required for search.");
+  
+    if (!location) {
+      throw new apierror(400, "Location is required for searching vehicles.");
     }
+  
+    // 🧠 Create flexible regex patterns from input words
+    const locationParts = location
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map((part) => new RegExp(part, "i"));
+  
+    // 🔍 Query for verified, available vehicles not booked
     const query = {
-        location: { $regex: location, $options: 'i' },
-        isAvailable: true, 
-        isVerified: true,
-        bookings: {
-            $not: { 
-                $elemMatch: { 
-                    bookingStatus: 'confirmed', 
-                } 
-            }
-        }
+      isAvailable: true,
+      isVerified: true,
+      $or: [
+        { location: { $in: locationParts } },
+        { city: { $in: locationParts } },
+      ],
+      bookings: {
+        $not: {
+          $elemMatch: {
+            bookingStatus: "confirmed",
+          },
+        },
+      },
     };
-    const vehicles = await Vehicle.find(query).populate('host', 'name');
-    return res.status(200).json(new apiresponse(200, vehicles, "Available vehicles fetched."));
-});
-
-const bookVehicle = asynchandler(async (req, res) => {
-    const { vehicleId } = req.params;
-    const { startDate, endDate, totalPrice } = req.body;
-    const userId = req.user._id;
-    if (!startDate || !endDate) {
-        throw new apierror(400, "Start date and end date are required for booking.");
+  
+    const vehicles = await Vehicle.find(query).populate("host", "name email");
+  
+    if (!vehicles.length) {
+      return res
+        .status(200)
+        .json(new apiresponse(200, [], "No vehicles found in this area."));
     }
-    const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) throw new apierror(404, "Vehicle not found.");
-    if (!vehicle.isAvailable) throw new apierror(400, "This vehicle is not available for booking at the moment.");
-    
-    const newBooking = {
+  
+    return res
+      .status(200)
+      .json(new apiresponse(200, vehicles, "Available vehicles fetched successfully."));
+  });
+const bookVehicle = asynchandler(async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+  
+    try {
+      const { vehicleId } = req.params;
+      const { startDate, endDate, totalPrice } = req.body;
+      const userId = req.user._id;
+  
+      if (!startDate || !endDate) {
+        throw new apierror(400, "Start date and end date are required for booking.");
+      }
+  
+      // ✅ Always fetch fresh data
+      const user = await User.findById(userId).session(session);
+      if (!user) throw new apierror(404, "User not found.");
+  
+      // ✅ Prevent duplicate active booking
+      if (user.isBookedVehicle === true) {
+        throw new apierror(400, "You already have an active booking. Please return your current vehicle before booking another.");
+      }
+  
+      if (!user.isDocVerified) {
+        throw new apierror(403, "You must verify your documents before booking a vehicle.");
+      }
+  
+      // ✅ Find vehicle
+      const vehicle = await Vehicle.findById(vehicleId).session(session);
+      if (!vehicle) throw new apierror(404, "Vehicle not found.");
+  
+      // ✅ Check availability
+      if (!vehicle.isAvailable) {
+        throw new apierror(400, "This vehicle is not available for booking at the moment.");
+      }
+  
+      // ✅ Create new booking
+      const newBooking = {
         userId,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         totalPrice,
-        bookingStatus: 'confirmed'
-    };
-    vehicle.bookings.push(newBooking);
-    await vehicle.save();
-    return res.status(200).json(new apiresponse(200, newBooking, "Vehicle booked successfully!"));
-});
+        bookingStatus: "confirmed",
+        createdAt: new Date(),
+      };
+  
+      vehicle.bookings.push(newBooking);
+  
+      // ✅ Mark states
+      vehicle.isAvailable = false;
+      user.isBookedVehicle = true;
+  
+      // ✅ Save both atomically in transaction
+      await Promise.all([vehicle.save({ session }), user.save({ session })]);
+  
+      await session.commitTransaction();
+      session.endSession();
+  
+      return res
+        .status(200)
+        .json(new apiresponse(200, newBooking, "Vehicle booked successfully!"));
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      
+      throw new apierror(500, "Booking failed. Please try again.");
+    }
+  });
 const deleteVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const hostId = req.user._id;
@@ -253,5 +319,123 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       .status(200)
       .json(new apiresponse(200, vehicleDetails, "Vehicle details fetched successfully."));
   });
-export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails};
+const endBooking = asynchandler(async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const userId = req.user._id;
+    const { vehicleId } = req.params;
+    const now = new Date();
+
+    // ✅ Find user & vehicle
+    const user = await User.findById(userId).session(session);
+    if (!user) throw new apierror(404, "User not found.");
+
+    const vehicle = await Vehicle.findById(vehicleId).session(session);
+    if (!vehicle) throw new apierror(404, "Vehicle not found.");
+
+    // ✅ Find active booking
+    const activeBooking = vehicle.bookings.find(
+      (b) =>
+        (b.bookingStatus === "confirmed" || b.bookingStatus === "pending") &&
+        (b.userId.toString() === userId.toString() ||
+          vehicle.host.toString() === userId.toString())
+    );
+
+    if (!activeBooking) {
+      throw new apierror(
+        400,
+        "No active booking found for this vehicle under your account."
+      );
+    }
+
+    // ✅ Check if booking is already expired (auto-end)
+    const isExpired = new Date(activeBooking.endDate) < now;
+
+    // ✅ Update booking & vehicle
+    activeBooking.bookingStatus = "Completed";
+    activeBooking.endDate = now;
+    vehicle.isAvailable = true;
+    vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
+
+    // ✅ Reset user's active booking
+    const renter = await User.findById(activeBooking.userId).session(session);
+    if (renter) {
+      renter.isBookedVehicle = false;
+      await renter.save({ session });
+    }
+
+    await vehicle.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        {
+          vehicleId,
+          bookingId: activeBooking._id,
+          bookingStatus: activeBooking.bookingStatus,
+          autoEnded: isExpired,
+        },
+        isExpired
+          ? "Booking automatically ended due to passed end date."
+          : "Booking ended successfully."
+      )
+    );
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("❌ End booking error:", error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to end booking.",
+    });
+  }
+});
+const getUserBookings = asynchandler(async (req, res) => {
+    const userId = req.user._id;
+  
+    // Find all vehicles where this user has bookings
+    const vehicles = await Vehicle.find({
+      "bookings.userId": userId,
+    })
+      .populate("host", "name email")
+      .select("scootyModel photos city location bookings");
+  
+    if (!vehicles.length) {
+      return res
+        .status(200)
+        .json(new apiresponse(200, [], "No bookings found for this user."));
+    }
+  
+    // Flatten all bookings relevant to this user
+const userBookings = vehicles.flatMap((vehicle) =>
+      vehicle.bookings
+        .filter((b) => b.userId.toString() === userId.toString())
+        .map((b) => ({
+          vehicleId: vehicle._id,
+          scootyModel: vehicle.scootyModel,
+          photos: vehicle.photos,
+          city: vehicle.city,
+          location: vehicle.location,
+          host: vehicle.host,
+          bookingStatus: b.bookingStatus,
+          startDate: b.startDate,
+          endDate: b.endDate,
+          totalPrice: b.totalPrice,
+        }))
+    );
+  
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        userBookings,
+        "User bookings fetched successfully."
+      )
+    );
+  });
+export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings};
 

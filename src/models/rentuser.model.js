@@ -72,7 +72,7 @@ const userSchema = new Schema(
       },
     ],
     isBookedVehicle: {
-      type:String,
+      type:Boolean,
       default:false
     },
     // OAuth fields
