@@ -57,8 +57,8 @@ const loginHost = asynchandler(async (req, res) => {
     await host.save({ validateBeforeSave: false });
     return res
       .status(200)
-      .cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: 'strict' })
-      .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: 'strict' })
+      .cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: 'none' })
+      .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: 'none' })
       .json(new apiresponse(200, { host, accessToken }, "Host login successful"));
 });
 
@@ -105,12 +105,12 @@ const googleLoginHost = asynchandler(async (req, res) => {
     .status(200)
     .cookie("accessToken", accessToken, {
       httpOnly: true,
-      sameSite: "lax",  // required for cross-site cookies
+      sameSite: "none",  // required for cross-site cookies
       secure: false     // must be false in localhost
     })
     .cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "none",
       secure: false
     })
     .json(
