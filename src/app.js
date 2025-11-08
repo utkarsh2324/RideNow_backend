@@ -11,7 +11,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173", // Local development
-  "https://ridenow-frontend.vercel.app", // Your production frontend
+  "https://ride-now-frontend.vercel.app", // Your production frontend
 ];
 
 // ✅ Use dynamic check (for safety and flexibility)
