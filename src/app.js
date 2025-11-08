@@ -9,16 +9,28 @@ dotenv.config({
 
 const app = express();
 
-// 1. CORS updated to allow all origins (for web + app development)
+const allowedOrigins = [
+  "http://localhost:5173", // Local development
+  "https://ridenow-frontend.vercel.app", // Your production frontend
+];
+
+// ✅ Use dynamic check (for safety and flexibility)
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",  // local dev
-      "https://your-frontend-domain.com", // production frontend (optional)
-    ],
-    credentials: true,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or Postman)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true, // ✅ Allow sending/receiving cookies
   })
 );
+
+// ✅ Handle preflight requests explicitly
+app.options("*", cors());
 
 app.get("/", (req, res) => {
   res.send("✅ Server is running fine!");
