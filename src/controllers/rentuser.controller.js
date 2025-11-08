@@ -220,12 +220,19 @@ const logout = asynchandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (user) {
     user.refreshToken = null;
-    await user.save();
+    await user.save({ validateBeforeSave: false });
   }
 
+  // 👇 Match the cookie options used in login
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: process.env.NODE_ENV === "production",
+  };
+
   return res
-    .clearCookie("accessToken")
-    .clearCookie("refreshToken")
+    .clearCookie("accessToken", cookieOptions)
+    .clearCookie("refreshToken", cookieOptions)
     .status(200)
     .json(new apiresponse(200, {}, "Logged out successfully"));
 });
