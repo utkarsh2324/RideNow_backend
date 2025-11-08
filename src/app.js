@@ -12,7 +12,10 @@ const app = express();
 // 1. CORS updated to allow all origins (for web + app development)
 app.use(
   cors({
-    origin: "*",
+    origin: [
+      "http://localhost:5173",  // local dev
+      "https://your-frontend-domain.com", // production frontend (optional)
+    ],
     credentials: true,
   })
 );
