@@ -109,20 +109,27 @@ const login = asynchandler(async (req, res) => {
 
   user.refreshToken = refreshToken;
   await user.save();
+  const isProduction = process.env.NODE_ENV === "production";
 
   return res
-  .cookie("accessToken", accessToken, {
-    httpOnly: true,
-    sameSite: "none",  // required for cross-site cookies
-    secure: false     // must be false in localhost
-  })
-  .cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    sameSite: "none",
-    secure: false
-  })
     .status(200)
-    .json(new apiresponse(200, user, "Login successful"));
+    .cookie("accessToken", accessToken, {
+      httpOnly: true,
+      sameSite: isProduction ? "none" : "lax", // ✅ 'none' for production, 'lax' for localhost
+      secure: isProduction, // ✅ true only in production (HTTPS)
+    })
+    .cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
+    })
+    .json(
+      new apiresponse(
+        200,
+        { user, accessToken },
+        "User logged in successfully"
+      )
+    );
 });
 
 

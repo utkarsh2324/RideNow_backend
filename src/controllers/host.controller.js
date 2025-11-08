@@ -55,11 +55,27 @@ const loginHost = asynchandler(async (req, res) => {
     const refreshToken = host.generateRefreshToken();
     host.refreshToken = refreshToken;
     await host.save({ validateBeforeSave: false });
-    return res
-      .status(200)
-      .cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: 'none' })
-      .cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: 'none' })
-      .json(new apiresponse(200, { host, accessToken }, "Host login successful"));
+    const isProduction = process.env.NODE_ENV === "production";
+
+  return res
+    .status(200)
+    .cookie("accessToken", accessToken, {
+      httpOnly: true,
+      sameSite: isProduction ? "none" : "lax", // ✅ 'none' for production, 'lax' for localhost
+      secure: isProduction, // ✅ true only in production (HTTPS)
+    })
+    .cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
+    })
+    .json(
+      new apiresponse(
+        200,
+        { user, accessToken },
+        "User logged in successfully"
+      )
+    );
 });
 
 const googleLoginHost = asynchandler(async (req, res) => {
