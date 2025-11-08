@@ -12,7 +12,7 @@ export const sendEmail = async (to, subject, message) => {
     });
 
     const mailOptions = {
-      from: `"MoviePie" <${process.env.EMAIL_USER}>`,
+      from: `"RideNow" <${process.env.EMAIL_USER}>`,
       to: to,
       subject: subject,
       text: message,
