@@ -100,18 +100,19 @@ const googleLoginHost = asynchandler(async (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
   };
+  const isProduction = process.env.NODE_ENV === "production";
 
   return res
     .status(200)
     .cookie("accessToken", accessToken, {
       httpOnly: true,
-      sameSite: "none",  // required for cross-site cookies
-      secure: false     // must be false in localhost
+      sameSite: isProduction ? "none" : "lax", // ✅ 'none' for production, 'lax' for localhost
+      secure: isProduction, // ✅ true only in production (HTTPS)
     })
     .cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      sameSite: "none",
-      secure: false
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
     })
     .json(
       new apiresponse(
