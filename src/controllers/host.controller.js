@@ -128,10 +128,16 @@ const logoutHost = asynchandler(async (req, res) => {
     $set: { refreshToken: null }
   });
 
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    secure: process.env.NODE_ENV === "production",
+  };
+
   return res
+    .clearCookie("accessToken", cookieOptions)
+    .clearCookie("refreshToken", cookieOptions)
     .status(200)
-    .clearCookie("accessToken", { httpOnly: true, secure: true })
-    .clearCookie("refreshToken", { httpOnly: true, secure: true })
     .json(new apiresponse(200, {}, "Logged out successfully"));
 });
 
