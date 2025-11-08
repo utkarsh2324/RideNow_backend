@@ -58,7 +58,7 @@ const vehicleSchema = new Schema(
         totalPrice: { type: Number, required: true },
         bookingStatus: { 
             type: String, 
-            enum: ['pending', 'confirmed', 'Completed'], 
+            enum: ['available','pending', 'confirmed', 'Completed','canceled'], 
             default: 'pending'
         }
       },

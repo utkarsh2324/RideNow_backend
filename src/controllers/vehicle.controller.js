@@ -129,6 +129,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   
     // Update availability
     vehicle.isAvailable = isAvailable;
+
     await vehicle.save();
   
     return res.status(200).json(
@@ -240,11 +241,10 @@ const bookVehicle = asynchandler(async (req, res) => {
   
       return res
         .status(200)
-        .json(new apiresponse(200, newBooking, "Vehicle booked successfully!"));
+        .json(new apiresponse(200, newBooking, "Vehicle booking sent to host wait for some time to get confirmed"));
     } catch (error) {
       await session.abortTransaction();
       session.endSession();
-      
       throw new apierror(500, "Booking failed. Please try again.");
     }
   });
@@ -436,6 +436,84 @@ const userBookings = vehicles.flatMap((vehicle) =>
         "User bookings fetched successfully."
       )
     );
-  });
-export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings};
+});
+const getHostBookings = asynchandler(async (req, res) => {
+  const hostId = req.user._id;
+
+  // 1. Find all vehicles owned by this host
+  const hostVehicles = await Vehicle.find({ host: hostId }).select(
+    "scootyModel photos bookings"
+  );
+
+  if (!hostVehicles.length) {
+    return res
+      .status(200)
+      .json(new apiresponse(200, [], "You do not have any vehicles."));
+  }
+
+  // 2. Collect all user IDs from all bookings (all statuses)
+  const allUserIds = hostVehicles.flatMap((vehicle) =>
+    vehicle.bookings.map((b) => b.userId)
+  );
+  
+  const uniqueUserIds = [...new Set(allUserIds.map(id => id.toString()))];
+
+  // 3. Fetch all unique users in one query
+  const renters = await User.find({ _id: { $in: uniqueUserIds } }).select(
+    "name email phone profile.photo"
+  );
+
+  // 4. Map users by their ID for easy lookup
+  const renterMap = new Map(
+    renters.map((renter) => [renter._id.toString(), renter])
+  );
+
+  // 5. Build the response by combining vehicle and renter data
+  const allBookings = hostVehicles.flatMap((vehicle) =>
+    vehicle.bookings.map((booking) => {
+      const renter = renterMap.get(booking.userId.toString());
+      return {
+        vehicleId: vehicle._id,
+        scootyModel: vehicle.scootyModel,
+        vehiclePhotos: vehicle.photos,
+        bookingId: booking._id,
+        bookingStatus: booking.bookingStatus,
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        totalPrice: booking.totalPrice,
+        createdAt: booking.createdAt,
+        renterDetails: renter
+          ? {
+              userId: renter._id,
+              name: renter.name,
+              email: renter.email,
+              phone: renter.phone,
+              photo: renter.profile?.photo,
+            }
+          : {
+              userId: booking.userId,
+              name: "Unknown User",
+            },
+      };
+    })
+  );
+
+  // 6. Sort by creation date (newest first)
+  allBookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  return res
+    .status(200)
+    .json(
+      new apiresponse(
+        200,
+        allBookings,
+        "All host bookings fetched successfully."
+      )
+    );
+});
+
+export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
+    verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
+    getHostBookings
+};
 

@@ -8,7 +8,8 @@ import {
     updateVehicle, 
     searchVehicles, 
     bookVehicle,
-    deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings
+    deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
+   getHostBookings
 } from "../controllers/vehicle.controller.js";
 
 const router = express.Router();
@@ -43,5 +44,8 @@ router.get("/details/:vehicleId", verifyHostJWT, getVehicleDetails);
 router.get("/userdetails/:vehicleId", verifyJWT, getVehicleDetails);
 router.post("/end/:vehicleId", verifyJWT, endBooking);
 router.get("/mybookings", verifyJWT, getUserBookings);
+router.route("/bookings").get(verifyHostJWT, getHostBookings);
+
+
 export default router;
 
