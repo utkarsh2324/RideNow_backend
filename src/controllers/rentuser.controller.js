@@ -113,12 +113,12 @@ const login = asynchandler(async (req, res) => {
   return res
   .cookie("accessToken", accessToken, {
     httpOnly: true,
-    sameSite: "lax",  // required for cross-site cookies
+    sameSite: "none",  // required for cross-site cookies
     secure: false     // must be false in localhost
   })
   .cookie("refreshToken", refreshToken, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "none",
     secure: false
   })
     .status(200)
@@ -171,12 +171,12 @@ const googleLogin = asynchandler(async (req, res) => {
     .status(200)
     .cookie("accessToken", accessToken, {
       httpOnly: true,
-      sameSite: "lax",  // required for cross-site cookies
+      sameSite: "none",  // required for cross-site cookies
       secure: false     // must be false in localhost
     })
     .cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "none",
       secure: false
     })
     .json(
