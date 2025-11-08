@@ -30,7 +30,8 @@ app.use(
 );
 
 // ✅ Handle preflight requests explicitly
-app.options("*", cors());
+app.options(/.*/, cors());
+
 
 app.get("/", (req, res) => {
   res.send("✅ Server is running fine!");
