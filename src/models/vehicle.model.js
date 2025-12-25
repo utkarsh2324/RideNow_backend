@@ -43,8 +43,6 @@ const vehicleSchema = new Schema(
         required: true,
       },
     ],
-    // You mentioned price will be handled by another model
-    // price: { ... }
     isAvailable: {
       type: Boolean,
       default: true,
@@ -55,11 +53,15 @@ const vehicleSchema = new Schema(
         userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
         startDate: { type: Date, required: true },
         endDate: { type: Date, required: true },
+        returnedAt: {
+          type: Date
+        },
         totalPrice: { type: Number, required: true },
-        bookingStatus: { 
-            type: String, 
-            enum: ['available','pending', 'confirmed', 'Completed','canceled'], 
-            default: 'pending'
+        bookingStatus: {
+          type: String,
+          enum: ['pending', 'confirmed', 'completed', 'canceled'],
+          lowercase: true, 
+          default: 'pending',
         }
       },
     ],

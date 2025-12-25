@@ -140,23 +140,32 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       )
     );
   });
-const searchVehicles = asynchandler(async (req, res) => {
-    const { location } = req.query;
+  const searchVehicles = asynchandler(async (req, res) => {
+    const { location, fromDate, toDate, fromTime, toTime } = req.query;
   
-    if (!location) {
-      throw new apierror(400, "Location is required for searching vehicles.");
+    if (!location || !fromDate || !toDate || !fromTime || !toTime) {
+      throw new apierror(400, "Location, date and time are required.");
     }
   
-    // 🧠 Create flexible regex patterns from input words
+    const requestedStart = new Date(
+      new Date(`${fromDate}T${fromTime}:00`).toISOString()
+    );
+    const requestedEnd = new Date(
+      new Date(`${toDate}T${toTime}:00`).toISOString()
+    );
+  
+    if (requestedStart >= requestedEnd) {
+      throw new apierror(400, "Invalid date/time range.");
+    }
+  
     const locationParts = location
       .split(/[,\s]+/)
       .filter(Boolean)
       .map((part) => new RegExp(part, "i"));
   
-    // 🔍 Query for verified, available vehicles not booked
-    const query = {
-      isAvailable: true,
+    const vehicles = await Vehicle.find({
       isVerified: true,
+      isAvailable: true,
       $or: [
         { location: { $in: locationParts } },
         { city: { $in: locationParts } },
@@ -165,88 +174,82 @@ const searchVehicles = asynchandler(async (req, res) => {
         $not: {
           $elemMatch: {
             bookingStatus: "confirmed",
+            startDate: { $lt: requestedEnd },
+            endDate: { $gt: requestedStart },
           },
         },
       },
-    };
+    }).populate("host", "name email");
   
-    const vehicles = await Vehicle.find(query).populate("host", "name email");
+    return res.status(200).json(
+      new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
+    );
+  });
+  const bookVehicle = asynchandler(async (req, res) => {
+    const { vehicleId } = req.params;
+    const { fromDate, toDate, fromTime, toTime, totalPrice } = req.body;
+    const userId = req.user._id;
   
-    if (!vehicles.length) {
-      return res
-        .status(200)
-        .json(new apiresponse(200, [], "No vehicles found in this area."));
+    if (!fromDate || !toDate || !fromTime || !toTime) {
+      throw new apierror(400, "Date and time are required for booking.");
     }
+  
+    const startDate = new Date(`${fromDate}T${fromTime}:00`);
+    const endDate = new Date(`${toDate}T${toTime}:00`);
+  
+    if (endDate.getTime() <= startDate.getTime()) {
+      throw new apierror(
+        400,
+        "End date & time must be after start date & time."
+      );
+    }
+  
+    const user = await User.findById(userId);
+    if (!user) throw new apierror(404, "User not found.");
+  
+    if (user.isBookedVehicle) {
+      throw new apierror(400, "You already have an active booking.");
+    }
+  
+    if (!user.isDocVerified) {
+      throw new apierror(403, "Verify documents before booking.");
+    }
+  
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) throw new apierror(404, "Vehicle not found.");
+  
+    if (!vehicle.isAvailable) {
+      throw new apierror(400, "Vehicle is not available.");
+    }
+  
+    // ✅ Prevent overlapping booking
+    const conflict = vehicle.bookings.some(
+      (b) =>
+        b.bookingStatus === "confirmed" &&
+        startDate < b.endDate &&
+        endDate > b.startDate
+    );
+  
+    if (conflict) {
+      throw new apierror(400, "Vehicle already booked for this time slot.");
+    }
+  
+    vehicle.bookings.push({
+      userId,
+      startDate,
+      endDate,
+      totalPrice,
+      bookingStatus: "confirmed",
+    });
+  
+    user.isBookedVehicle = true;
+  
+    await vehicle.save();
+    await user.save();
   
     return res
       .status(200)
-      .json(new apiresponse(200, vehicles, "Available vehicles fetched successfully."));
-  });
-const bookVehicle = asynchandler(async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-  
-    try {
-      const { vehicleId } = req.params;
-      const { startDate, endDate, totalPrice } = req.body;
-      const userId = req.user._id;
-  
-      if (!startDate || !endDate) {
-        throw new apierror(400, "Start date and end date are required for booking.");
-      }
-  
-      // ✅ Always fetch fresh data
-      const user = await User.findById(userId).session(session);
-      if (!user) throw new apierror(404, "User not found.");
-  
-      // ✅ Prevent duplicate active booking
-      if (user.isBookedVehicle === true) {
-        throw new apierror(400, "You already have an active booking. Please return your current vehicle before booking another.");
-      }
-  
-      if (!user.isDocVerified) {
-        throw new apierror(403, "You must verify your documents before booking a vehicle.");
-      }
-  
-      // ✅ Find vehicle
-      const vehicle = await Vehicle.findById(vehicleId).session(session);
-      if (!vehicle) throw new apierror(404, "Vehicle not found.");
-  
-      // ✅ Check availability
-      if (!vehicle.isAvailable) {
-        throw new apierror(400, "This vehicle is not available for booking at the moment.");
-      }
-  
-      // ✅ Create new booking
-      const newBooking = {
-        userId,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        totalPrice,
-        bookingStatus: "confirmed",
-        createdAt: new Date(),
-      };
-  
-      vehicle.bookings.push(newBooking);
-  
-      // ✅ Mark states
-      vehicle.isAvailable = false;
-      user.isBookedVehicle = true;
-  
-      // ✅ Save both atomically in transaction
-      await Promise.all([vehicle.save({ session }), user.save({ session })]);
-  
-      await session.commitTransaction();
-      session.endSession();
-  
-      return res
-        .status(200)
-        .json(new apiresponse(200, newBooking, "Vehicle booking sent to host wait for some time to get confirmed"));
-    } catch (error) {
-      await session.abortTransaction();
-      session.endSession();
-      throw new apierror(500, "Booking failed. Please try again.");
-    }
+      .json(new apiresponse(200, {}, "Vehicle booked successfully."));
   });
 const deleteVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
@@ -320,57 +323,39 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       .json(new apiresponse(200, vehicleDetails, "Vehicle details fetched successfully."));
   });
 const endBooking = asynchandler(async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
     const userId = req.user._id;
     const { vehicleId } = req.params;
     const now = new Date();
-
-    // ✅ Find user & vehicle
-    const user = await User.findById(userId).session(session);
+  
+    const user = await User.findById(userId);
     if (!user) throw new apierror(404, "User not found.");
-
-    const vehicle = await Vehicle.findById(vehicleId).session(session);
+  
+    const vehicle = await Vehicle.findById(vehicleId);
     if (!vehicle) throw new apierror(404, "Vehicle not found.");
-
-    // ✅ Find active booking
+  
     const activeBooking = vehicle.bookings.find(
       (b) =>
         (b.bookingStatus === "confirmed" || b.bookingStatus === "pending") &&
-        (b.userId.toString() === userId.toString() ||
-          vehicle.host.toString() === userId.toString())
+        b.userId.toString() === userId.toString()
     );
-
+  
     if (!activeBooking) {
-      throw new apierror(
-        400,
-        "No active booking found for this vehicle under your account."
-      );
+      throw new apierror(400, "No active booking found.");
     }
-
-    // ✅ Check if booking is already expired (auto-end)
+  
     const isExpired = new Date(activeBooking.endDate) < now;
-
-    // ✅ Update booking & vehicle
-    activeBooking.bookingStatus = "Completed";
-    activeBooking.endDate = now;
+  
+    activeBooking.bookingStatus = "completed";
+    activeBooking.returnedAt = now;
+  
     vehicle.isAvailable = true;
     vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
-
-    // ✅ Reset user's active booking
-    const renter = await User.findById(activeBooking.userId).session(session);
-    if (renter) {
-      renter.isBookedVehicle = false;
-      await renter.save({ session });
-    }
-
-    await vehicle.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
-
+  
+    user.isBookedVehicle = false;
+  
+    await vehicle.save();
+    await user.save();
+  
     return res.status(200).json(
       new apiresponse(
         200,
@@ -385,16 +370,7 @@ const endBooking = asynchandler(async (req, res) => {
           : "Booking ended successfully."
       )
     );
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error("❌ End booking error:", error);
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "Failed to end booking.",
-    });
-  }
-});
+  });
 const getUserBookings = asynchandler(async (req, res) => {
     const userId = req.user._id;
   
