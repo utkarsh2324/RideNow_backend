@@ -9,7 +9,7 @@ import {
     searchVehicles, 
     bookVehicle,
     deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-   getHostBookings
+   getHostBookings,confirmBookingByHost
 } from "../controllers/vehicle.controller.js";
 
 const router = express.Router();
@@ -45,7 +45,11 @@ router.get("/userdetails/:vehicleId", verifyJWT, getVehicleDetails);
 router.post("/end/:vehicleId", verifyJWT, endBooking);
 router.get("/mybookings", verifyJWT, getUserBookings);
 router.route("/bookings").get(verifyHostJWT, getHostBookings);
-
+router.patch(
+    "/host/vehicles/:vehicleId/bookings/:bookingId/confirm",
+    verifyHostJWT,
+    confirmBookingByHost
+  );
 
 export default router;
 

@@ -190,39 +190,24 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     const { fromDate, toDate, fromTime, toTime, totalPrice } = req.body;
     const userId = req.user._id;
   
-    if (!fromDate || !toDate || !fromTime || !toTime) {
-      throw new apierror(400, "Date and time are required for booking.");
-    }
-  
     const startDate = new Date(`${fromDate}T${fromTime}:00`);
     const endDate = new Date(`${toDate}T${toTime}:00`);
   
-    if (endDate.getTime() <= startDate.getTime()) {
-      throw new apierror(
-        400,
-        "End date & time must be after start date & time."
-      );
+    if (endDate <= startDate) {
+      throw new apierror(400, "Invalid booking time range.");
     }
   
     const user = await User.findById(userId);
-    if (!user) throw new apierror(404, "User not found.");
-  
-    if (user.isBookedVehicle) {
-      throw new apierror(400, "You already have an active booking.");
-    }
-  
-    if (!user.isDocVerified) {
-      throw new apierror(403, "Verify documents before booking.");
+    if (!user || !user.isDocVerified) {
+      throw new apierror(403, "User not verified.");
     }
   
     const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) throw new apierror(404, "Vehicle not found.");
-  
-    if (!vehicle.isAvailable) {
-      throw new apierror(400, "Vehicle is not available.");
+    if (!vehicle || !vehicle.isAvailable) {
+      throw new apierror(400, "Vehicle not available.");
     }
   
-    // ✅ Prevent overlapping booking
+    // ❌ Only check CONFIRMED bookings
     const conflict = vehicle.bookings.some(
       (b) =>
         b.bookingStatus === "confirmed" &&
@@ -231,25 +216,23 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     );
   
     if (conflict) {
-      throw new apierror(400, "Vehicle already booked for this time slot.");
+      throw new apierror(400, "Vehicle already booked for this slot.");
     }
   
+    // ✅ Create PENDING booking
     vehicle.bookings.push({
       userId,
       startDate,
       endDate,
       totalPrice,
-      bookingStatus: "confirmed",
+      bookingStatus: "pending",
     });
   
-    user.isBookedVehicle = true;
-  
     await vehicle.save();
-    await user.save();
   
-    return res
-      .status(200)
-      .json(new apiresponse(200, {}, "Vehicle booked successfully."));
+    return res.status(200).json(
+      new apiresponse(200, {}, "Booking request sent to host for approval.")
+    );
   });
 const deleteVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
@@ -386,7 +369,9 @@ const getUserBookings = asynchandler(async (req, res) => {
         .status(200)
         .json(new apiresponse(200, [], "No bookings found for this user."));
     }
-  
+    for (const vehicle of vehicles) {
+      await autoCompleteExpiredBookings(vehicle);
+    }
     // Flatten all bookings relevant to this user
 const userBookings = vehicles.flatMap((vehicle) =>
       vehicle.bookings
@@ -426,7 +411,9 @@ const getHostBookings = asynchandler(async (req, res) => {
       .status(200)
       .json(new apiresponse(200, [], "You do not have any vehicles."));
   }
-
+  for (const vehicle of hostVehicles) {
+    await autoCompleteExpiredBookings(vehicle);
+  }
   // 2. Collect all user IDs from all bookings (all statuses)
   const allUserIds = hostVehicles.flatMap((vehicle) =>
     vehicle.bookings.map((b) => b.userId)
@@ -487,9 +474,74 @@ const getHostBookings = asynchandler(async (req, res) => {
       )
     );
 });
+const confirmBookingByHost = asynchandler(async (req, res) => {
+  const hostId = req.user._id;
+  const { vehicleId, bookingId } = req.params;
 
+  const vehicle = await Vehicle.findOne({ _id: vehicleId, host: hostId });
+  if (!vehicle) {
+    throw new apierror(404, "Vehicle not found or unauthorized.");
+  }
+
+  const bookingToConfirm = vehicle.bookings.id(bookingId);
+  if (!bookingToConfirm || bookingToConfirm.bookingStatus !== "pending") {
+    throw new apierror(400, "Invalid booking request.");
+  }
+
+  const { startDate, endDate } = bookingToConfirm;
+
+  // ✅ Confirm selected booking
+  bookingToConfirm.bookingStatus = "confirmed";
+
+  // ❌ Cancel overlapping pending bookings
+  vehicle.bookings.forEach((b) => {
+    if (
+      b._id.toString() !== bookingId &&
+      b.bookingStatus === "pending" &&
+      startDate < b.endDate &&
+      endDate > b.startDate
+    ) {
+      b.bookingStatus = "canceled";
+    }
+  });
+
+  await vehicle.save();
+
+  // Update confirmed user status
+  await User.findByIdAndUpdate(bookingToConfirm.userId, {
+    isBookedVehicle: true,
+  });
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      {},
+      "Booking confirmed. Other overlapping requests rejected."
+    )
+  );
+});
+const autoCompleteExpiredBookings = async (vehicle) => {
+  let updated = false;
+  const now = new Date();
+
+  vehicle.bookings.forEach((b) => {
+    if (
+      b.bookingStatus === "confirmed" &&
+      new Date(b.endDate) < now
+    ) {
+      b.bookingStatus = "completed";
+      b.returnedAt = now;
+      updated = true;
+    }
+  });
+
+  if (updated) {
+    vehicle.isAvailable = true;
+    await vehicle.save();
+  }
+};
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-    getHostBookings
+    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings
 };
 
