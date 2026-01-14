@@ -7,6 +7,7 @@ import { apierror } from "../utils/apierror.js";
 import { apiresponse } from "../utils/apiresponse.js";
 import axios from "axios";
 import mongoose, { Schema } from "mongoose";
+import { sendSMS } from "../utils/twilio.js";
 
 const addVehicle = asynchandler(async (req, res) => {
     const { scootyModel, location, city} = req.body;
@@ -46,49 +47,32 @@ const addVehicle = asynchandler(async (req, res) => {
     return res.status(201).json(new apiresponse(201, vehicle, "Vehicle added successfully. Awaiting verification."));
 });
 const verifyRC = asynchandler(async (req, res) => {
-    if (!req.file) throw new apierror(400, "RC PDF file is required.");
-    const hostId = req.user._id;
-  
-    const host = await Host.findById(hostId);
-    if (!host) throw new apierror(404, "Host not found.");
-  
-    const rcBlob = new Blob([req.file.buffer], { type: "application/pdf" });
-    const formData = new FormData();
-    formData.append("file", rcBlob, "rc.pdf");
-  
-    const { data } = await axios.post(
-      "https://arjun9036-ridenow.hf.space/validate-rc",
-      formData,
+  if (!req.file) {
+    throw new apierror(400, "RC file is required.");
+  }
+
+  const hostId = req.user._id;
+  const host = await Host.findById(hostId);
+
+  if (!host) {
+    throw new apierror(404, "Host not found.");
+  }
+
+  // 🔹 Upload RC to Cloudinary
+  const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+
+  // ❗ DO NOT verify automatically
+  return res.status(200).json(
+    new apiresponse(
+      200,
       {
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        responseType: "text",
-      }
-    );
-  
-    const validation = typeof data === "string" ? data : JSON.stringify(data);
-    const normalized = validation.toLowerCase();
-  
-    if (normalized.includes("✅ rc number".toLowerCase()) && normalized.includes("valid and found")) {
-      const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
-  
-      // ✅ Just return verification info (don’t attach to vehicle yet)
-      return res.status(200).json(
-        new apiresponse(
-          200,
-          {
-            rcUrl: uploadResult.secure_url,
-            validation,
-          },
-          "✅ RC verified successfully."
-        )
-      );
-    } else {
-      return res.status(200).json(
-        new apiresponse(200, { validation }, "⚠️ RC not found or invalid.")
-      );
-    }
-  });
+        rcUrl: uploadResult.secure_url,
+        status: "pending",
+      },
+      "📄 RC uploaded successfully. Verification pending."
+    )
+  );
+});
 const updateVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const { location } = req.body;
@@ -185,7 +169,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
     );
   });
-  const bookVehicle = asynchandler(async (req, res) => {
+const bookVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const { fromDate, toDate, fromTime, toTime, totalPrice } = req.body;
     const userId = req.user._id;
@@ -202,12 +186,12 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       throw new apierror(403, "User not verified.");
     }
   
-    const vehicle = await Vehicle.findById(vehicleId);
+    const vehicle = await Vehicle.findById(vehicleId).populate("host");
     if (!vehicle || !vehicle.isAvailable) {
       throw new apierror(400, "Vehicle not available.");
     }
   
-    // ❌ Only check CONFIRMED bookings
+    // ❌ Check only confirmed bookings
     const conflict = vehicle.bookings.some(
       (b) =>
         b.bookingStatus === "confirmed" &&
@@ -219,7 +203,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       throw new apierror(400, "Vehicle already booked for this slot.");
     }
   
-    // ✅ Create PENDING booking
+    // ✅ Create pending booking
     vehicle.bookings.push({
       userId,
       startDate,
@@ -230,8 +214,30 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   
     await vehicle.save();
   
+    /* ---------------- SEND SMS TO HOST ---------------- */
+  
+    if (vehicle.host?.phone) {
+      const message = `
+  🚲 RideNow Booking Alert
+  
+  You have a new booking request!
+  
+  Vehicle: ${vehicle.scootyModel}
+  From: ${fromDate} ${fromTime}
+  To: ${toDate} ${toTime}
+  
+  Please login to RideNow to approve or reject.
+      `;
+  
+      await sendSMS(vehicle.host.phone, message);
+    }
+  
     return res.status(200).json(
-      new apiresponse(200, {}, "Booking request sent to host for approval.")
+      new apiresponse(
+        200,
+        {},
+        "Booking request sent. Host has been notified."
+      )
     );
   });
 const deleteVehicle = asynchandler(async (req, res) => {
@@ -263,24 +269,24 @@ const deleteVehicle = asynchandler(async (req, res) => {
       .status(200)
       .json(new apiresponse(200, {}, "Vehicle deleted successfully"));
   });
-const getVehicleDetails = asynchandler(async (req, res) => {
+  const getVehicleDetails = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
   
-    // ✅ Validate vehicle ID
     if (!vehicleId) {
       throw new apierror(400, "Vehicle ID is required.");
     }
   
-    // ✅ Find vehicle and populate host details (optional)
     const vehicle = await Vehicle.findById(vehicleId)
-      .populate("host", "name email phone profile.photo")
+      .populate({
+        path: "host",
+        select: "name email phone profile"
+      })
       .lean();
   
     if (!vehicle) {
       throw new apierror(404, "Vehicle not found.");
     }
   
-    // ✅ Create structured response
     const vehicleDetails = {
       _id: vehicle._id,
       scootyModel: vehicle.scootyModel,
@@ -300,10 +306,15 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       },
     };
   
-    // ✅ Return success response
     return res
       .status(200)
-      .json(new apiresponse(200, vehicleDetails, "Vehicle details fetched successfully."));
+      .json(
+        new apiresponse(
+          200,
+          vehicleDetails,
+          "Vehicle details fetched successfully."
+        )
+      );
   });
 const endBooking = asynchandler(async (req, res) => {
     const userId = req.user._id;

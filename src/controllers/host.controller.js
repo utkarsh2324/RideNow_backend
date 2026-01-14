@@ -217,60 +217,41 @@ const getCurrentHost = asynchandler(async (req, res) => {
 });
 
 const verifyHostAadhar = asynchandler(async (req, res) => {
-  if (!req.file) throw new apierror(400, "Aadhar PDF file is required");
-
-  const user = await Host.findById(req.user._id);
-  if (!user) throw new apierror(404, "User not found");
-  const aadharBlob = new Blob([req.file.buffer], { type: 'application/pdf' });
-
-  const formData = new FormData();
-  formData.append('file', aadharBlob, 'aadhar.pdf');
-
-  const { data } = await axios.post(
-    "https://arjun9036-ridenow.hf.space/validate-aadhaar",
-    formData, 
-    {
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      responseType: "text",
-    }
-  );
-
-  // ✅ data is a plain string, so use it directly
-  const validation = typeof data === "string" ? data : JSON.stringify(data);
-  
-
-  // ✅ If valid
-  if (validation.includes("✅ Aadhaar number") && validation.includes("valid and found")) {
-   
-    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
-
-    user.verifiedDoc.docType = "Aadhar";
-    user.verifiedDoc.docUrl = uploadResult.secure_url;
-    user.verifiedDoc.status = "approved";
-      user.isDocVerified = true;
-  
-
-    await user.save();
-
-    return res
-      .status(200)
-      .json(
-        new apiresponse(
-          200,
-          {
-            docType: "Aadhar",
-            docUrl: uploadResult.secure_url,
-            validation,
-          },
-          "✅ Aadhar verified and uploaded successfully"
-        )
-      );
-  } else {
-    return res
-      .status(200)
-      .json(new apiresponse(200, { validation }, "⚠️ Aadhar not found in database"));
+  if (!req.file) {
+    throw new apierror(400, "Aadhaar file is required");
   }
+
+  const host = await Host.findById(req.user._id);
+  if (!host) {
+    throw new apierror(404, "Host not found");
+  }
+
+  // 🔹 Upload Aadhaar to Cloudinary
+  const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+
+  // 🔹 Save / Update Aadhaar document
+  host.verifiedDoc = {
+    docType: "Aadhar",
+    docUrl: uploadResult.secure_url,
+    status: "pending", // ⏳ manual verification
+  };
+
+  // ❌ Do NOT auto verify host
+  host.isDocVerified = false;
+
+  await host.save();
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      {
+        docType: "Aadhar",
+        docUrl: uploadResult.secure_url,
+        status: "pending",
+      },
+      "📄 Aadhaar uploaded successfully. Verification pending."
+    )
+  );
 });
 
 
