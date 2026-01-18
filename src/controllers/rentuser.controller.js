@@ -15,8 +15,7 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const registerUser = asynchandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // Validate inputs
-  if (!email || !password || email.trim() === "" || password.trim() === "") {
+  if (!email || !password) {
     throw new apierror(400, "Email and password are required");
   }
 
@@ -29,32 +28,35 @@ const registerUser = asynchandler(async (req, res) => {
     throw new apierror(409, "User already exists");
   }
 
-  // Generate & hash OTP
   const otp = generateOtp();
   const hashedOtp = await bcrypt.hash(otp, 10);
-  const otpExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const otpExpiry = Date.now() + 10 * 60 * 1000;
 
-  // Send OTP via email
-  await sendEmail(
-    email,
-    "Your OTP Code",
-    `Your OTP code is ${otp}. It will expire in 10 minutes.`
-  );
+  await sendEmail({
+    to: email,
+    subject: "Your RideNow OTP",
+    text: `Your OTP is ${otp}. It expires in 10 minutes.`,
+    html: `
+      <h2>RideNow Verification</h2>
+      <p>Your OTP is:</p>
+      <h1>${otp}</h1>
+      <p>This OTP is valid for 10 minutes.</p>
+    `,
+  });
 
-  // Create user
   const user = await User.create({
     email,
     password,
     otp: hashedOtp,
     otpExpiry,
-    isEmailVerified: false
+    isEmailVerified: false,
   });
 
   return res.status(201).json(
     new apiresponse(
       200,
       { userId: user._id, email: user.email },
-      "OTP sent to your email. Please verify."
+      "OTP sent to email"
     )
   );
 });
