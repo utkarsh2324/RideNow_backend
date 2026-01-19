@@ -10,6 +10,8 @@ import mongoose, { Schema } from "mongoose";
 import { sendSMS } from "../utils/twilio.js";
 import { sendHostBookingEmail } from "../utils/sendHostBookingEmail.js";
 import { sendRenterBookingConfirmedEmail } from "../utils/sendRentConfirmBookingEmail.js";
+import { sendBookingEndedEmail } from "../utils/sendBookingEndedEmail.js";
+
 const addVehicle = asynchandler(async (req, res) => {
     const { scootyModel, location, city} = req.body;
     // Read the authenticated user/host from req.user
@@ -314,7 +316,7 @@ const deleteVehicle = asynchandler(async (req, res) => {
         )
       );
   });
-  const endBooking = asynchandler(async (req, res) => {
+ const endBooking = asynchandler(async (req, res) => {
     const userId = req.user._id;
     const { vehicleId } = req.params;
     const now = new Date();
@@ -347,7 +349,7 @@ const deleteVehicle = asynchandler(async (req, res) => {
   
     await vehicle.save();
     await user.save();
-  
+    console.log("📨 Ending booking → sending emails");
     /* ---------- SEND EMAIL TO BOTH HOST & RENTER ---------- */
     await sendBookingEndedEmail({
       renterEmail: user.email,
