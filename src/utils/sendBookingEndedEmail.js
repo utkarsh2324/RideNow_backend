@@ -21,7 +21,7 @@ export const sendBookingEndedEmail = async ({
   if (renterEmail) {
     await sendEmail({
       to: renterEmail,
-      subject: "🏁 Your RideNow Booking Has Ended",
+      subject: " Your RideNow Booking Has Ended",
       text: `
 RideNow - Booking Completed
 
