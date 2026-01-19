@@ -15,7 +15,7 @@ export const sendHostBookingEmail = async ({
 }) => {
   await sendEmail({
     to: hostEmail,
-    subject: "🚲 New Booking Request on RideNow",
+    subject: " New Booking Request on RideNow",
     text: `
 New Booking Request
 
@@ -33,7 +33,7 @@ Total Price: ₹${totalPrice}
 Please login to RideNow to approve or reject this booking.
     `,
     html: `
-      <h2 style="text-align:center;margin-top:0;">🚲 New Booking Request</h2>
+      <h2 style="text-align:center;margin-top:0;"> New Booking Request</h2>
 
       <p>Hi <strong>${hostName}</strong>,</p>
 

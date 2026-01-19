@@ -18,7 +18,7 @@ export const sendBookingEndedEmail = async ({
   if (renterEmail) {
     await sendEmail({
       to: renterEmail,
-      subject: "🏁 Your RideNow Booking Has Ended",
+      subject: "Your RideNow Booking Has Ended",
       text: `
 Booking Completed
 
@@ -29,7 +29,7 @@ Total Price: ₹${totalPrice}
 Status: ${statusText}
       `,
       html: `
-        <h2 style="text-align:center;">🏁 Booking Completed</h2>
+        <h2 style="text-align:center;"> Booking Completed</h2>
 
         <p>Hi <strong>${renterName}</strong>,</p>
 
@@ -48,7 +48,7 @@ Status: ${statusText}
   if (hostEmail) {
     await sendEmail({
       to: hostEmail,
-      subject: "🏁 RideNow Booking Completed",
+      subject: " RideNow Booking Completed",
       text: `
 Booking Completed
 
@@ -60,7 +60,7 @@ Total Price: ₹${totalPrice}
 Status: ${statusText}
       `,
       html: `
-        <h2 style="text-align:center;">🏁 Booking Completed</h2>
+        <h2 style="text-align:center;"> Booking Completed</h2>
 
         <p>Hi <strong>${hostName}</strong>,</p>
 

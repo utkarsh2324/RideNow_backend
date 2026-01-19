@@ -31,7 +31,7 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const logoUrl = "https://ridenow.website/temp/logo.png"; 
+const logoUrl = "https://ridenow.website/email-assets/logo.png";
 // ⬆️ use /email-assets as discussed (NOT /temp)
 
 const websiteUrl = "https://ridenow.website";
