@@ -8,6 +8,7 @@ import { apiresponse } from "../utils/apiresponse.js";
 import axios from "axios";
 import mongoose, { Schema } from "mongoose";
 import { sendSMS } from "../utils/twilio.js";
+import { sendHostBookingEmail } from "../utils/sendHostBookingEmail.js";
 
 const addVehicle = asynchandler(async (req, res) => {
     const { scootyModel, location, city} = req.body;
@@ -169,7 +170,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
     );
   });
-const bookVehicle = asynchandler(async (req, res) => {
+  const bookVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const { fromDate, toDate, fromTime, toTime, totalPrice } = req.body;
     const userId = req.user._id;
@@ -191,7 +192,6 @@ const bookVehicle = asynchandler(async (req, res) => {
       throw new apierror(400, "Vehicle not available.");
     }
   
-    // ❌ Check only confirmed bookings
     const conflict = vehicle.bookings.some(
       (b) =>
         b.bookingStatus === "confirmed" &&
@@ -203,7 +203,6 @@ const bookVehicle = asynchandler(async (req, res) => {
       throw new apierror(400, "Vehicle already booked for this slot.");
     }
   
-    // ✅ Create pending booking
     vehicle.bookings.push({
       userId,
       startDate,
@@ -214,29 +213,28 @@ const bookVehicle = asynchandler(async (req, res) => {
   
     await vehicle.save();
   
-    /* ---------------- SEND SMS TO HOST ---------------- */
-  
-    if (vehicle.host?.phone) {
-      const message = `
-  🚲 RideNow Booking Alert
-  
-  You have a new booking request!
-  
-  Vehicle: ${vehicle.scootyModel}
-  From: ${fromDate} ${fromTime}
-  To: ${toDate} ${toTime}
-  
-  Please login to RideNow to approve or reject.
-      `;
-  
-      await sendSMS(vehicle.host.phone, message);
+    /* ---------- SEND EMAIL TO HOST ---------- */
+    if (vehicle.host?.email) {
+      await sendHostBookingEmail({
+        hostEmail: vehicle.host.email,
+        hostName: vehicle.host.userName,
+        renterName: user.userName,
+        renterEmail: user.email,
+        renterPhone: user.phone,
+        vehicleModel: vehicle.scootyModel,
+        fromDate,
+        fromTime,
+        toDate,
+        toTime,
+        totalPrice,
+      });
     }
   
     return res.status(200).json(
       new apiresponse(
         200,
         {},
-        "Booking request sent. Host has been notified."
+        "Booking request sent. Host has been notified via email."
       )
     );
   });
