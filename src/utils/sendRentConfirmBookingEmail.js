@@ -11,14 +11,11 @@ export const sendRenterBookingConfirmedEmail = async ({
   totalPrice,
   hostName,
 }) => {
-  const logoUrl = "https://ridenow.website/temp/logo.png";
-  const websiteUrl = "https://ridenow.website";
-
   await sendEmail({
     to: renterEmail,
     subject: "✅ Your RideNow Booking is Confirmed!",
     text: `
-RideNow - Booking Confirmed
+Booking Confirmed
 
 Hi ${renterName},
 
@@ -30,61 +27,27 @@ To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
 Host: ${hostName}
 
-Visit: ${websiteUrl}
-
 Please arrive on time and enjoy your ride!
-
-— RideNow Team
     `,
     html: `
-      <div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#333;">
+      <h2 style="text-align:center;margin-top:0;">✅ Booking Confirmed</h2>
 
-        <!-- Logo -->
-        <div style="text-align:center;padding:20px 0;">
-          <img src="${logoUrl}" alt="RideNow Logo" style="height:70px;" />
-        </div>
+      <p>Hi <strong>${renterName}</strong>,</p>
 
-        <!-- Card -->
-        <div style="background:#f9f9f9;padding:24px;border-radius:12px;">
-          <h2 style="text-align:center;margin-top:0;">✅ Booking Confirmed</h2>
+      <p>Your booking has been <strong>approved by the host</strong>.</p>
 
-          <p>Hi <strong>${renterName}</strong>,</p>
+      <h3>Booking Details</h3>
+      <table style="width:100%;font-size:14px;">
+        <tr><td><strong>Vehicle:</strong></td><td>${vehicleModel}</td></tr>
+        <tr><td><strong>From:</strong></td><td>${fromDate} ${fromTime}</td></tr>
+        <tr><td><strong>To:</strong></td><td>${toDate} ${toTime}</td></tr>
+        <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
+        <tr><td><strong>Host:</strong></td><td>${hostName}</td></tr>
+      </table>
 
-          <p>Your booking has been <strong>approved by the host</strong>.</p>
-
-          <h3>Booking Details</h3>
-          <table style="width:100%;font-size:14px;">
-            <tr><td><strong>Vehicle:</strong></td><td>${vehicleModel}</td></tr>
-            <tr><td><strong>From:</strong></td><td>${fromDate} ${fromTime}</td></tr>
-            <tr><td><strong>To:</strong></td><td>${toDate} ${toTime}</td></tr>
-            <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
-            <tr><td><strong>Host:</strong></td><td>${hostName}</td></tr>
-          </table>
-
-          <p style="margin-top:22px;text-align:center;">
-            🌐 Visit us at<br />
-            <a href="${websiteUrl}"
-               target="_blank"
-               style="
-                 color:#16a34a;
-                 text-decoration:none;
-                 font-weight:600;
-                 font-size:15px;
-               ">
-               ridenow.website
-            </a>
-          </p>
-
-          <p style="margin-top:20px;text-align:center;">
-            Have a safe and enjoyable ride 🚲
-          </p>
-        </div>
-
-        <p style="text-align:center;font-size:12px;color:#888;margin-top:15px;">
-          © ${new Date().getFullYear()} RideNow
-        </p>
-
-      </div>
+      <p style="margin-top:20px;text-align:center;">
+        Have a safe and enjoyable ride 🚲
+      </p>
     `,
   });
 };
