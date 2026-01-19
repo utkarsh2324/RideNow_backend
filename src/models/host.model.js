@@ -19,8 +19,6 @@ const hostSchema = new Schema(
     },
     upiid:{
       type:String,
-      
-      unique:true
     },
     phone: {
       type: String,
