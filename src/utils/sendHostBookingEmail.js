@@ -1,4 +1,4 @@
-import { resend } from "../utils/resend.js"; // or your resend instance
+import { sendEmail } from "./sendemail.js";
 
 export const sendHostBookingEmail = async ({
   hostEmail,
@@ -13,44 +13,45 @@ export const sendHostBookingEmail = async ({
   toTime,
   totalPrice,
 }) => {
-  await resend.emails.send({
-    from: "no-reply@ridenow.website",
+  await sendEmail({
     to: hostEmail,
     subject: "🚲 New Booking Request on RideNow",
     text: `
 New Booking Request
 
-Renter: ${renterName}
-Email: ${renterEmail}
-Phone: ${renterPhone}
+Renter Name: ${renterName}
+Renter Email: ${renterEmail}
+Renter Phone: ${renterPhone}
 
 Vehicle: ${vehicleModel}
 From: ${fromDate} ${fromTime}
 To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
 
-Please login to RideNow to approve or reject the booking.
+Please login to RideNow to approve or reject this booking.
     `,
     html: `
       <h2>🚲 New Booking Request</h2>
 
-      <p><strong>Renter Details</strong></p>
+      <p><strong>Host:</strong> ${hostName}</p>
+
+      <h3>Renter Details</h3>
       <ul>
-        <li>Name: ${renterName}</li>
-        <li>Email: ${renterEmail}</li>
-        <li>Phone: ${renterPhone}</li>
+        <li><strong>Name:</strong> ${renterName}</li>
+        <li><strong>Email:</strong> ${renterEmail}</li>
+        <li><strong>Phone:</strong> ${renterPhone}</li>
       </ul>
 
-      <p><strong>Booking Details</strong></p>
+      <h3>Booking Details</h3>
       <ul>
-        <li>Vehicle: ${vehicleModel}</li>
-        <li>From: ${fromDate} ${fromTime}</li>
-        <li>To: ${toDate} ${toTime}</li>
-        <li>Total Price: ₹${totalPrice}</li>
-        <li>Status: Pending Approval</li>
+        <li><strong>Vehicle:</strong> ${vehicleModel}</li>
+        <li><strong>From:</strong> ${fromDate} ${fromTime}</li>
+        <li><strong>To:</strong> ${toDate} ${toTime}</li>
+        <li><strong>Total Price:</strong> ₹${totalPrice}</li>
+        <li><strong>Status:</strong> Pending Approval</li>
       </ul>
 
-      <p>Please login to RideNow to approve or reject this booking.</p>
+      <p>Please login to <strong>RideNow</strong> to approve or reject this booking.</p>
 
       <p>— RideNow Team</p>
     `,
