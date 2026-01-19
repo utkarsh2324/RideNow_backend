@@ -314,7 +314,7 @@ const deleteVehicle = asynchandler(async (req, res) => {
         )
       );
   });
-const endBooking = asynchandler(async (req, res) => {
+  const endBooking = asynchandler(async (req, res) => {
     const userId = req.user._id;
     const { vehicleId } = req.params;
     const now = new Date();
@@ -322,7 +322,7 @@ const endBooking = asynchandler(async (req, res) => {
     const user = await User.findById(userId);
     if (!user) throw new apierror(404, "User not found.");
   
-    const vehicle = await Vehicle.findById(vehicleId);
+    const vehicle = await Vehicle.findById(vehicleId).populate("host");
     if (!vehicle) throw new apierror(404, "Vehicle not found.");
   
     const activeBooking = vehicle.bookings.find(
@@ -348,6 +348,19 @@ const endBooking = asynchandler(async (req, res) => {
     await vehicle.save();
     await user.save();
   
+    /* ---------- SEND EMAIL TO BOTH HOST & RENTER ---------- */
+    await sendBookingEndedEmail({
+      renterEmail: user.email,
+      renterName: user.name,
+      hostEmail: vehicle.host?.email,
+      hostName: vehicle.host?.name,
+      vehicleModel: vehicle.scootyModel,
+      fromDate: activeBooking.startDate.toLocaleDateString(),
+      toDate: activeBooking.endDate.toLocaleDateString(),
+      totalPrice: activeBooking.totalPrice,
+      autoEnded: isExpired,
+    });
+  
     return res.status(200).json(
       new apiresponse(
         200,
@@ -358,8 +371,8 @@ const endBooking = asynchandler(async (req, res) => {
           autoEnded: isExpired,
         },
         isExpired
-          ? "Booking automatically ended due to passed end date."
-          : "Booking ended successfully."
+          ? "Booking automatically ended and emails sent."
+          : "Booking ended successfully and emails sent."
       )
     );
   });
