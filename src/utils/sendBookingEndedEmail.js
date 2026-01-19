@@ -12,6 +12,7 @@ export const sendBookingEndedEmail = async ({
   autoEnded,
 }) => {
   const logoUrl = "https://ridenow.website/temp/logo.png";
+  const websiteUrl = "https://ridenow.website";
 
   const statusText = autoEnded
     ? "Automatically ended (booking time completed)"
@@ -21,7 +22,7 @@ export const sendBookingEndedEmail = async ({
   if (renterEmail) {
     await sendEmail({
       to: renterEmail,
-      subject: " Your RideNow Booking Has Ended",
+      subject: "🏁 Your RideNow Booking Has Ended",
       text: `
 RideNow - Booking Completed
 
@@ -34,11 +35,13 @@ To: ${toDate}
 Total Price: ₹${totalPrice}
 Status: ${statusText}
 
+Visit: ${websiteUrl}
+
 — RideNow Team
       `,
       html: `
         <div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#333;">
-          
+
           <!-- Logo -->
           <div style="text-align:center;padding:20px 0;">
             <img src="${logoUrl}" alt="RideNow Logo" style="height:70px;" />
@@ -58,6 +61,20 @@ Status: ${statusText}
               <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
               <tr><td><strong>Status:</strong></td><td>${statusText}</td></tr>
             </table>
+
+            <p style="margin-top:22px;text-align:center;">
+              🌐 Visit RideNow<br />
+              <a href="${websiteUrl}"
+                 target="_blank"
+                 style="
+                   color:#16a34a;
+                   text-decoration:none;
+                   font-weight:600;
+                   font-size:15px;
+                 ">
+                ridenow.website
+              </a>
+            </p>
 
             <p style="margin-top:20px;text-align:center;">
               Thank you for choosing <strong>RideNow</strong> 🚲
@@ -91,11 +108,13 @@ To: ${toDate}
 Total Price: ₹${totalPrice}
 Status: ${statusText}
 
+Visit: ${websiteUrl}
+
 — RideNow Team
       `,
       html: `
         <div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#333;">
-          
+
           <!-- Logo -->
           <div style="text-align:center;padding:20px 0;">
             <img src="${logoUrl}" alt="RideNow Logo" style="height:70px;" />
@@ -117,6 +136,20 @@ Status: ${statusText}
               <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
               <tr><td><strong>Status:</strong></td><td>${statusText}</td></tr>
             </table>
+
+            <p style="margin-top:22px;text-align:center;">
+              🌐 RideNow Platform<br />
+              <a href="${websiteUrl}"
+                 target="_blank"
+                 style="
+                   color:#16a34a;
+                   text-decoration:none;
+                   font-weight:600;
+                   font-size:15px;
+                 ">
+                ridenow.website
+              </a>
+            </p>
           </div>
 
           <p style="text-align:center;font-size:12px;color:#888;margin-top:15px;">

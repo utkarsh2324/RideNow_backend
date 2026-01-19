@@ -14,6 +14,7 @@ export const sendHostBookingEmail = async ({
   totalPrice,
 }) => {
   const logoUrl = "https://ridenow.website/temp/logo.png";
+  const websiteUrl = "https://ridenow.website";
 
   await sendEmail({
     to: hostEmail,
@@ -31,6 +32,8 @@ Vehicle: ${vehicleModel}
 From: ${fromDate} ${fromTime}
 To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
+
+Visit: ${websiteUrl}
 
 Please login to RideNow to approve or reject this booking.
 
@@ -67,6 +70,20 @@ Please login to RideNow to approve or reject this booking.
             <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
             <tr><td><strong>Status:</strong></td><td>Pending Approval</td></tr>
           </table>
+
+          <p style="margin-top:22px;text-align:center;">
+            🌐 Open RideNow<br />
+            <a href="${websiteUrl}"
+               target="_blank"
+               style="
+                 color:#16a34a;
+                 text-decoration:none;
+                 font-weight:600;
+                 font-size:15px;
+               ">
+              ridenow.website
+            </a>
+          </p>
 
           <p style="margin-top:20px;text-align:center;">
             Please login to your RideNow dashboard to approve or reject this booking.

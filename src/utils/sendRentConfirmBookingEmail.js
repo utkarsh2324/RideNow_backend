@@ -12,6 +12,7 @@ export const sendRenterBookingConfirmedEmail = async ({
   hostName,
 }) => {
   const logoUrl = "https://ridenow.website/temp/logo.png";
+  const websiteUrl = "https://ridenow.website";
 
   await sendEmail({
     to: renterEmail,
@@ -29,6 +30,8 @@ To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
 Host: ${hostName}
 
+Visit: ${websiteUrl}
+
 Please arrive on time and enjoy your ride!
 
 — RideNow Team
@@ -36,7 +39,7 @@ Please arrive on time and enjoy your ride!
     html: `
       <div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#333;">
 
-        <!-- Logo (NOT clickable) -->
+        <!-- Logo -->
         <div style="text-align:center;padding:20px 0;">
           <img src="${logoUrl}" alt="RideNow Logo" style="height:70px;" />
         </div>
@@ -57,6 +60,20 @@ Please arrive on time and enjoy your ride!
             <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
             <tr><td><strong>Host:</strong></td><td>${hostName}</td></tr>
           </table>
+
+          <p style="margin-top:22px;text-align:center;">
+            🌐 Visit us at<br />
+            <a href="${websiteUrl}"
+               target="_blank"
+               style="
+                 color:#16a34a;
+                 text-decoration:none;
+                 font-weight:600;
+                 font-size:15px;
+               ">
+               ridenow.website
+            </a>
+          </p>
 
           <p style="margin-top:20px;text-align:center;">
             Have a safe and enjoyable ride 🚲

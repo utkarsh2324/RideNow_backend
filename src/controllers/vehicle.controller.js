@@ -219,7 +219,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     if (vehicle.host?.email) {
       await sendHostBookingEmail({
         hostEmail: vehicle.host.email,
-        hostName: vehicle.host.userName,
+        hostName: vehicle.host.name,
         renterName: user.name,
         renterEmail: user.email,
         renterPhone: user.phone,
