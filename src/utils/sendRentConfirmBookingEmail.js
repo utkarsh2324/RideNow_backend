@@ -11,13 +11,13 @@ export const sendRenterBookingConfirmedEmail = async ({
   totalPrice,
   hostName,
 }) => {
-  const websiteUrl = "https://ridenow.website"; // ✅ RideNow website link
+  const logoUrl = "https://ridenow.website/temp/logo.png";
 
   await sendEmail({
     to: renterEmail,
     subject: "✅ Your RideNow Booking is Confirmed!",
     text: `
-Booking Confirmed!
+RideNow - Booking Confirmed
 
 Hi ${renterName},
 
@@ -29,38 +29,45 @@ To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
 Host: ${hostName}
 
-View your booking or manage your ride here:
-${websiteUrl}
-
 Please arrive on time and enjoy your ride!
 
 — RideNow Team
     `,
     html: `
-      <h2>✅ Booking Confirmed</h2>
+      <div style="max-width:600px;margin:auto;font-family:Arial,sans-serif;color:#333;">
 
-      <p>Hi <strong>${renterName}</strong>,</p>
+        <!-- Logo (NOT clickable) -->
+        <div style="text-align:center;padding:20px 0;">
+          <img src="${logoUrl}" alt="RideNow Logo" style="height:70px;" />
+        </div>
 
-      <p>Your booking has been <strong>approved by the host</strong>.</p>
+        <!-- Card -->
+        <div style="background:#f9f9f9;padding:24px;border-radius:12px;">
+          <h2 style="text-align:center;margin-top:0;">✅ Booking Confirmed</h2>
 
-      <h3>Booking Details</h3>
-      <ul>
-        <li><strong>Vehicle:</strong> ${vehicleModel}</li>
-        <li><strong>From:</strong> ${fromDate} ${fromTime}</li>
-        <li><strong>To:</strong> ${toDate} ${toTime}</li>
-        <li><strong>Total Price:</strong> ₹${totalPrice}</li>
-        <li><strong>Host:</strong> ${hostName}</li>
-      </ul>
+          <p>Hi <strong>${renterName}</strong>,</p>
 
-      <p>
-        👉 <a href="${websiteUrl}" target="_blank" rel="noopener noreferrer">
-          Open RideNow Website
-        </a>
-      </p>
+          <p>Your booking has been <strong>approved by the host</strong>.</p>
 
-      <p>Please arrive on time and enjoy your ride 🚲</p>
+          <h3>Booking Details</h3>
+          <table style="width:100%;font-size:14px;">
+            <tr><td><strong>Vehicle:</strong></td><td>${vehicleModel}</td></tr>
+            <tr><td><strong>From:</strong></td><td>${fromDate} ${fromTime}</td></tr>
+            <tr><td><strong>To:</strong></td><td>${toDate} ${toTime}</td></tr>
+            <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
+            <tr><td><strong>Host:</strong></td><td>${hostName}</td></tr>
+          </table>
 
-      <p>— RideNow Team</p>
+          <p style="margin-top:20px;text-align:center;">
+            Have a safe and enjoyable ride 🚲
+          </p>
+        </div>
+
+        <p style="text-align:center;font-size:12px;color:#888;margin-top:15px;">
+          © ${new Date().getFullYear()} RideNow
+        </p>
+
+      </div>
     `,
   });
 };
