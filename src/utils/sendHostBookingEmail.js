@@ -13,6 +13,8 @@ export const sendHostBookingEmail = async ({
   toTime,
   totalPrice,
 }) => {
+  const websiteUrl = "https://ridenow.website"; // ✅ your website link
+
   await sendEmail({
     to: hostEmail,
     subject: "🚲 New Booking Request on RideNow",
@@ -27,6 +29,9 @@ Vehicle: ${vehicleModel}
 From: ${fromDate} ${fromTime}
 To: ${toDate} ${toTime}
 Total Price: ₹${totalPrice}
+
+Manage your booking here:
+${websiteUrl}
 
 Please login to RideNow to approve or reject this booking.
     `,
@@ -50,6 +55,12 @@ Please login to RideNow to approve or reject this booking.
         <li><strong>Total Price:</strong> ₹${totalPrice}</li>
         <li><strong>Status:</strong> Pending Approval</li>
       </ul>
+
+      <p>
+        👉 <a href="${websiteUrl}" target="_blank" rel="noopener noreferrer">
+          Open RideNow Website
+        </a>
+      </p>
 
       <p>Please login to <strong>RideNow</strong> to approve or reject this booking.</p>
 

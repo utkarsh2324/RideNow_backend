@@ -9,7 +9,7 @@ import axios from "axios";
 import mongoose, { Schema } from "mongoose";
 import { sendSMS } from "../utils/twilio.js";
 import { sendHostBookingEmail } from "../utils/sendHostBookingEmail.js";
-
+import { sendRenterBookingConfirmedEmail } from "../utils/sendRentConfirmBookingEmail.js";
 const addVehicle = asynchandler(async (req, res) => {
     const { scootyModel, location, city} = req.body;
     // Read the authenticated user/host from req.user
@@ -218,7 +218,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       await sendHostBookingEmail({
         hostEmail: vehicle.host.email,
         hostName: vehicle.host.userName,
-        renterName: user.userName,
+        renterName: user.name,
         renterEmail: user.email,
         renterPhone: user.phone,
         vehicleModel: vehicle.scootyModel,
@@ -483,6 +483,7 @@ const getHostBookings = asynchandler(async (req, res) => {
       )
     );
 });
+
 const confirmBookingByHost = asynchandler(async (req, res) => {
   const hostId = req.user._id;
   const { vehicleId, bookingId } = req.params;
@@ -517,15 +518,32 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   await vehicle.save();
 
   // Update confirmed user status
-  await User.findByIdAndUpdate(bookingToConfirm.userId, {
-    isBookedVehicle: true,
-  });
+  const renter = await User.findByIdAndUpdate(
+    bookingToConfirm.userId,
+    { isBookedVehicle: true },
+    { new: true }
+  );
+
+  /* ---------- SEND EMAIL TO RENTER ---------- */
+  if (renter?.email) {
+    await sendRenterBookingConfirmedEmail({
+      renterEmail: renter.email,
+      renterName: renter.name,
+      vehicleModel: vehicle.scootyModel,
+      fromDate: bookingToConfirm.startDate.toLocaleDateString(),
+      fromTime: bookingToConfirm.startDate.toLocaleTimeString(),
+      toDate: bookingToConfirm.endDate.toLocaleDateString(),
+      toTime: bookingToConfirm.endDate.toLocaleTimeString(),
+      totalPrice: bookingToConfirm.totalPrice,
+      hostName: vehicle.hostName || "RideNow Host",
+    });
+  }
 
   return res.status(200).json(
     new apiresponse(
       200,
       {},
-      "Booking confirmed. Other overlapping requests rejected."
+      "Booking confirmed and renter notified via email."
     )
   );
 });
