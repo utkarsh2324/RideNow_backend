@@ -259,7 +259,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
     );
   });
-  export const previewVehiclePrice = async (req, res) => {
+const previewVehiclePrice = async (req, res) => {
     const { vehicleId } = req.params;
     const { fromDate, toDate, fromTime = "10:00", toTime = "18:00" } = req.body;
   
