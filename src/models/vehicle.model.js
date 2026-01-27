@@ -48,6 +48,20 @@ const vehicleSchema = new Schema(
       default: true,
       description: "Can be toggled by the host to quickly take it off the listing",
     },
+    pricing: {
+      weekdayPrice: {
+        type: Number,
+        required: true,
+        min: 1,
+        description: "Price per day from Monday to Friday",
+      },
+      weekendPrice: {
+        type: Number,
+        required: true,
+        min: 1,
+        description: "Price per day for Saturday & Sunday",
+      },
+    },
     bookings: [
       {
         userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

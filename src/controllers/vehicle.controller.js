@@ -11,43 +11,86 @@ import { sendSMS } from "../utils/twilio.js";
 import { sendHostBookingEmail } from "../utils/sendHostBookingEmail.js";
 import { sendRenterBookingConfirmedEmail } from "../utils/sendRentConfirmBookingEmail.js";
 import { sendBookingEndedEmail } from "../utils/sendBookingEndedEmail.js";
-
+import { calculateBookingPrice } from "../utils/calculateBookingprice.js";
 const addVehicle = asynchandler(async (req, res) => {
-    const { scootyModel, location, city} = req.body;
-    // Read the authenticated user/host from req.user
-    const hostId = req.user._id;
+  const {
+    scootyModel,
+    location,
+    city,
+    weekdayPrice,
+    weekendPrice
+  } = req.body;
 
-    if (!req.files || !req.files.photos || !req.files.rc ||!city) {
-        throw new apierror(400, "Vehicle photos, RC, and Insurance documents are all required.");
-    }
+  const hostId = req.user._id;
 
-    const photoUploadPromises = req.files.photos.map(file => uploadOnCloudinary(file.buffer));
-    const rcUploadPromise = uploadOnCloudinary(req.files.rc[0].buffer);
-    
+  // ✅ Basic validation
+  if (
+    !scootyModel ||
+    !location ||
+    !city ||
+    !weekdayPrice ||
+    !weekendPrice
+  ) {
+    throw new apierror(400, "All fields including pricing are required.");
+  }
 
-    const [photoResults, rcResult] = await Promise.all([
-        Promise.all(photoUploadPromises),
-        rcUploadPromise
-    ]);
+  if (Number(weekendPrice) < Number(weekdayPrice)) {
+    throw new apierror(400, "Weekend price cannot be less than weekday price.");
+  }
 
-    const photoUrls = photoResults.map(result => result.secure_url);
+  if (!req.files || !req.files.photos || !req.files.rc) {
+    throw new apierror(
+      400,
+      "Vehicle photos and RC document are required."
+    );
+  }
 
-    const vehicle = await Vehicle.create({
-        host: hostId,
-        scootyModel,
-        location,
-        photos: photoUrls,
-        documents: {
-            rc: rcResult.secure_url,
-           
-        },
-        city,
-        isVerified:true
-    });
+  // 📤 Upload images
+  const photoUploadPromises = req.files.photos.map(file =>
+    uploadOnCloudinary(file.buffer)
+  );
 
-    await Host.findByIdAndUpdate(hostId, { $push: { vehicles: vehicle._id } });
+  const rcUploadPromise = uploadOnCloudinary(req.files.rc[0].buffer);
 
-    return res.status(201).json(new apiresponse(201, vehicle, "Vehicle added successfully. Awaiting verification."));
+  const [photoResults, rcResult] = await Promise.all([
+    Promise.all(photoUploadPromises),
+    rcUploadPromise,
+  ]);
+
+  const photoUrls = photoResults.map(result => result.secure_url);
+
+  // 🚗 Create vehicle
+  const vehicle = await Vehicle.create({
+    host: hostId,
+    scootyModel,
+    location,
+    city,
+    pricing: {
+      weekdayPrice: Number(weekdayPrice),
+      weekendPrice: Number(weekendPrice),
+    },
+    photos: photoUrls,
+    documents: {
+      rc: rcResult.secure_url,
+    },
+    isVerified: true,
+  });
+
+  // 🔗 Attach vehicle to host
+  await Host.findByIdAndUpdate(
+    hostId,
+    { $push: { vehicles: vehicle._id } }
+  );
+
+  return res
+    .status(201)
+    .json(
+      new apiresponse(
+        201,
+        vehicle,
+        "Vehicle added successfully. Awaiting verification."
+      )
+    );
 });
 const verifyRC = asynchandler(async (req, res) => {
   if (!req.file) {
@@ -77,26 +120,70 @@ const verifyRC = asynchandler(async (req, res) => {
   );
 });
 const updateVehicle = asynchandler(async (req, res) => {
-    const { vehicleId } = req.params;
-    const { location } = req.body;
-    // Read the authenticated user/host from req.user
-    const hostId = req.user._id;
+  const { vehicleId } = req.params;
+  const { location, weekdayPrice, weekendPrice } = req.body;
 
-    const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) throw new apierror(404, "Vehicle not found");
+  const hostId = req.user._id;
 
-    if (vehicle.host.toString() !== hostId.toString()) {
-        throw new apierror(403, "Forbidden: You are not authorized to update this vehicle");
+  const vehicle = await Vehicle.findById(vehicleId);
+  if (!vehicle) throw new apierror(404, "Vehicle not found");
+
+  if (vehicle.host.toString() !== hostId.toString()) {
+    throw new apierror(403, "Forbidden");
+  }
+
+  // 🔍 Detect price update attempt
+  const isPriceUpdate =
+    weekdayPrice !== undefined || weekendPrice !== undefined;
+
+  // 🚫 Block price update if active booking exists
+  if (isPriceUpdate) {
+    const hasActiveBooking = vehicle.bookings.some(
+      booking =>
+        booking.bookingStatus === "confirmed" &&
+        new Date(booking.endDate) >= new Date()
+    );
+
+    if (hasActiveBooking) {
+      throw new apierror(
+        400,
+        "Cannot update pricing while vehicle has an active booking"
+      );
     }
+  }
 
-    if (location) vehicle.location = location;
-   
+  // 📍 Update fields
+  if (location) vehicle.location = location;
 
-    // Automatically calculate isAvailable based on current date and booking status
+  if (weekdayPrice !== undefined) {
+    vehicle.pricing.weekdayPrice = Number(weekdayPrice);
+  }
 
-    await vehicle.save({ validateBeforeSave: false });
+  if (weekendPrice !== undefined) {
+    vehicle.pricing.weekendPrice = Number(weekendPrice);
+  }
 
-    return res.status(200).json(new apiresponse(200, vehicle, "Vehicle details updated successfully"));
+  // 🧮 Pricing validation
+  if (
+    vehicle.pricing.weekendPrice < vehicle.pricing.weekdayPrice
+  ) {
+    throw new apierror(
+      400,
+      "Weekend price cannot be less than weekday price"
+    );
+  }
+
+  await vehicle.save({ validateBeforeSave: false });
+
+  return res
+    .status(200)
+    .json(
+      new apiresponse(
+        200,
+        vehicle,
+        "Vehicle details updated successfully"
+      )
+    );
 });
 const toggleVehicleAvailability = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
@@ -172,74 +259,123 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
     );
   });
-  const bookVehicle = asynchandler(async (req, res) => {
+  export const previewVehiclePrice = async (req, res) => {
     const { vehicleId } = req.params;
-    const { fromDate, toDate, fromTime, toTime, totalPrice } = req.body;
-    const userId = req.user._id;
+    const { fromDate, toDate, fromTime = "10:00", toTime = "18:00" } = req.body;
+  
+    if (!fromDate || !toDate) {
+      throw new apierror(400, "Booking dates are required");
+    }
   
     const startDate = new Date(`${fromDate}T${fromTime}:00`);
     const endDate = new Date(`${toDate}T${toTime}:00`);
   
     if (endDate <= startDate) {
-      throw new apierror(400, "Invalid booking time range.");
+      throw new apierror(400, "Invalid date range");
     }
   
-    const user = await User.findById(userId);
-    if (!user || !user.isDocVerified) {
-      throw new apierror(403, "User not verified.");
-    }
+    const vehicle = await Vehicle.findById(vehicleId);
   
-    const vehicle = await Vehicle.findById(vehicleId).populate("host");
     if (!vehicle || !vehicle.isAvailable) {
-      throw new apierror(400, "Vehicle not available.");
+      throw new apierror(404, "Vehicle not available");
     }
   
-    const conflict = vehicle.bookings.some(
-      (b) =>
-        b.bookingStatus === "confirmed" &&
-        startDate < b.endDate &&
-        endDate > b.startDate
-    );
-  
-    if (conflict) {
-      throw new apierror(400, "Vehicle already booked for this slot.");
-    }
-  
-    vehicle.bookings.push({
-      userId,
+    const totalPrice = calculateBookingPrice(
       startDate,
       endDate,
-      totalPrice,
-      bookingStatus: "pending",
-    });
+      vehicle.pricing
+    );
   
-    await vehicle.save();
-  
-    /* ---------- SEND EMAIL TO HOST ---------- */
-    if (vehicle.host?.email) {
-      await sendHostBookingEmail({
-        hostEmail: vehicle.host.email,
-        hostName: vehicle.host.name,
-        renterName: user.name,
-        renterEmail: user.email,
-        renterPhone: user.phone,
-        vehicleModel: vehicle.scootyModel,
-        fromDate,
-        fromTime,
-        toDate,
-        toTime,
-        totalPrice,
-      });
-    }
+    const totalDays = Math.ceil(
+      (endDate - startDate) / (1000 * 60 * 60 * 24)
+    );
   
     return res.status(200).json(
-      new apiresponse(
-        200,
-        {},
-        "Booking request sent. Host has been notified via email."
-      )
+      new apiresponse(200, {
+        totalPrice,
+        totalDays,
+        weekdayPrice: vehicle.pricing.weekdayPrice,
+        weekendPrice: vehicle.pricing.weekendPrice,
+        averagePerDay: Math.round(totalPrice / totalDays),
+      }, "Price preview calculated")
     );
+  };
+const bookVehicle = asynchandler(async (req, res) => {
+  const { vehicleId } = req.params;
+  const { fromDate, toDate, fromTime, toTime } = req.body;
+  const userId = req.user._id;
+
+  const startDate = new Date(`${fromDate}T${fromTime}:00`);
+  const endDate = new Date(`${toDate}T${toTime}:00`);
+
+  if (endDate <= startDate) {
+    throw new apierror(400, "Invalid booking time range.");
+  }
+
+  const user = await User.findById(userId);
+  if (!user || !user.isDocVerified) {
+    throw new apierror(403, "User not verified.");
+  }
+
+  const vehicle = await Vehicle.findById(vehicleId).populate("host");
+  if (!vehicle || !vehicle.isAvailable) {
+    throw new apierror(400, "Vehicle not available.");
+  }
+
+  // 🚫 Conflict check (you already have this correct)
+  const conflict = vehicle.bookings.some(
+    (b) =>
+      b.bookingStatus === "confirmed" &&
+      startDate < b.endDate &&
+      endDate > b.startDate
+  );
+
+  if (conflict) {
+    throw new apierror(400, "Vehicle already booked for this slot.");
+  }
+
+  // 💰 PRICE CALCULATION — THIS IS WHERE IT BELONGS
+  const totalPrice = calculateBookingPrice(
+    startDate,
+    endDate,
+    vehicle.pricing
+  );
+
+  vehicle.bookings.push({
+    userId,
+    startDate,
+    endDate,
+    totalPrice,
+    bookingStatus: "pending",
   });
+
+  await vehicle.save();
+
+  /* ---------- SEND EMAIL TO HOST ---------- */
+  if (vehicle.host?.email) {
+    await sendHostBookingEmail({
+      hostEmail: vehicle.host.email,
+      hostName: vehicle.host.name,
+      renterName: user.name,
+      renterEmail: user.email,
+      renterPhone: user.phone,
+      vehicleModel: vehicle.scootyModel,
+      fromDate,
+      fromTime,
+      toDate,
+      toTime,
+      totalPrice, // calculated securely
+    });
+  }
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      { totalPrice },
+      "Booking request sent. Host has been notified via email."
+    )
+  );
+});
 const deleteVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const hostId = req.user._id;
@@ -584,6 +720,6 @@ const autoCompleteExpiredBookings = async (vehicle) => {
 };
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings
+    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice
 };
 

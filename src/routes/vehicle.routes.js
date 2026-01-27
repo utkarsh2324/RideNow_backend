@@ -9,7 +9,7 @@ import {
     searchVehicles, 
     bookVehicle,
     deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-   getHostBookings,confirmBookingByHost
+   getHostBookings,confirmBookingByHost,previewVehiclePrice
 } from "../controllers/vehicle.controller.js";
 
 const router = express.Router();
@@ -50,6 +50,10 @@ router.patch(
     verifyHostJWT,
     confirmBookingByHost
   );
-
+  router.post(
+    "/price-preview/:vehicleId",
+    verifyJWT,
+    previewVehiclePrice
+  );
 export default router;
 
