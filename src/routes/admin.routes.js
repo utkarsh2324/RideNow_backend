@@ -8,7 +8,7 @@ import {
   getAllHostsForAdmin,
   updateHostDocumentStatus,
   getAllVehiclesForAdmin,
-  updateVehicleVerificationStatus,
+  updateVehicleVerificationStatus,getCurrentAdmin
 } from "../controllers/admin.controller.js";
 
 import { verifyAdminJWT } from "../middlewares/admin.middlewares.js";
@@ -24,7 +24,11 @@ router.post("/login", adminLogin);
 
 // Admin Logout
 router.post("/logout", verifyAdminJWT, adminLogout);
-
+router.get(
+    "/current-admin",
+    verifyAdminJWT,
+    getCurrentAdmin
+  );
 /* ---------- RENT USERS ---------- */
 
 // Get all rent users with stats

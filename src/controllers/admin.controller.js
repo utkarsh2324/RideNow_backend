@@ -59,7 +59,18 @@ const adminLogout = asynchandler(async (req, res) => {
     .status(200)
     .json(new apiresponse(200, {}, "Admin logged out successfully"));
 });
-
+const getCurrentAdmin = asynchandler(async (req, res) => {
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      {
+        email: req.admin.email,
+        role: "admin",
+      },
+      "Current admin fetched successfully"
+    )
+  );
+});
 /* =====================================================
    👤 RENT USERS (VIEW + STATS + DOC APPROVAL)
 ===================================================== */
@@ -224,5 +235,5 @@ export {
   getAllHostsForAdmin,
   updateHostDocumentStatus,
   getAllVehiclesForAdmin,
-  updateVehicleVerificationStatus,
+  updateVehicleVerificationStatus,getCurrentAdmin
 };
