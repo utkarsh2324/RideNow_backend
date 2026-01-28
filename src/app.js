@@ -58,7 +58,7 @@ import hostRouter from "./routes/host.routes.js";
 import hostProfileRouter from "./routes/hostprofile.route.js";
 import vehicleRouter from "./routes/vehicle.routes.js";
 import hostNotificationRouter from "./routes/notification.routes.js";
-
+import adminRouter from "./routes/admin.routes.js";
 // --- App Routes (NEW) ---
 import userAppRouter from "./routes/rentuser.app.routes.js";
 import profileAppRouter from "./routes/rentuserprofiler.app.routes.js";
@@ -73,7 +73,7 @@ app.use("/api/v1/hosts", hostRouter);
 app.use("/api/v1/hosts/profile", hostProfileRouter);
 app.use("/api/v1/vehicles", vehicleRouter);
 app.use("/api/v1/hosts/notifications", hostNotificationRouter);
-
+app.use("/api/v1/admins",adminRouter)
 // --- App Route Declarations (NEW) ---
 // We mount the app routes on a separate /app prefix
 app.use("/api/v1/app/users", userAppRouter);
