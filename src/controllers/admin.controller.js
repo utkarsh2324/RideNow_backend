@@ -8,7 +8,7 @@ import { apierror } from "../utils/apierror.js";
 import { apiresponse } from "../utils/apiresponse.js";
 
 /* =====================================================
-   🔐 ADMIN AUTH (ENV BASED LOGIN)
+   🔐 ADMIN AUTH
 ===================================================== */
 
 const adminLogin = asynchandler(async (req, res) => {
@@ -31,13 +31,13 @@ const adminLogin = asynchandler(async (req, res) => {
     throw new apierror(401, "Invalid admin credentials");
   }
 
-  const adminAccessToken = jwt.sign(
+  const token = jwt.sign(
     { role: "admin", email },
     process.env.ADMIN_ACCESS_TOKEN_SECRET,
     { expiresIn: process.env.ADMIN_ACCESS_TOKEN_EXPIRY || "1d" }
   );
 
-  res.cookie("adminAccessToken", adminAccessToken, {
+  res.cookie("adminAccessToken", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
@@ -49,36 +49,48 @@ const adminLogin = asynchandler(async (req, res) => {
 });
 
 const adminLogout = asynchandler(async (req, res) => {
-  res.clearCookie("adminAccessToken", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-  });
-
-  return res
-    .status(200)
-    .json(new apiresponse(200, {}, "Admin logged out successfully"));
-});
-const getCurrentAdmin = asynchandler(async (req, res) => {
+  res.clearCookie("adminAccessToken");
   return res.status(200).json(
-    new apiresponse(
-      200,
-      {
-        email: req.admin.email,
-        role: "admin",
-      },
-      "Current admin fetched successfully"
-    )
+    new apiresponse(200, {}, "Admin logged out successfully")
   );
 });
+
+const getCurrentAdmin = asynchandler(async (req, res) => {
+  return res.status(200).json(
+    new apiresponse(200, { email: req.admin.email, role: "admin" })
+  );
+});
+
 /* =====================================================
-   👤 RENT USERS (VIEW + STATS + DOC APPROVAL)
+   🧮 PROFILE COMPLETION
+===================================================== */
+
+const calculateProfileCompletion = (entity) => {
+  let completed = 0;
+  let total = 4; // phone, photo, document, email
+
+  if (entity.phone) completed++;
+  if (entity.profile?.photo) completed++;
+
+  if (Array.isArray(entity.verifiedDoc)) {
+    if (entity.verifiedDoc.length > 0) completed++;
+  } else if (entity.verifiedDoc?.docUrl) {
+    completed++;
+  }
+
+  if (entity.email) completed++;
+
+  return Math.round((completed / total) * 100);
+};
+
+/* =====================================================
+   👤 USERS (LIST + DETAILS + DOC VERIFY)
 ===================================================== */
 
 const getAllUsersForAdmin = asynchandler(async (req, res) => {
   const users = await User.find().select("-password -refreshToken");
 
-  const usersWithStats = await Promise.all(
+  const enriched = await Promise.all(
     users.map(async (user) => {
       const stats = await Vehicle.aggregate([
         { $unwind: "$bookings" },
@@ -101,7 +113,71 @@ const getAllUsersForAdmin = asynchandler(async (req, res) => {
   );
 
   return res.status(200).json(
-    new apiresponse(200, usersWithStats, "Rent users fetched successfully")
+    new apiresponse(200, enriched, "Users fetched")
+  );
+});
+
+const getUserDetailsForAdmin = asynchandler(async (req, res) => {
+  const user = await User.findById(req.params.userId).select(
+    "-password -refreshToken"
+  );
+  if (!user) throw new apierror(404, "User not found");
+
+  const rides = await Vehicle.aggregate([
+    { $unwind: "$bookings" },
+    { $match: { "bookings.userId": user._id } },
+
+    {
+      $lookup: {
+        from: "hosts",
+        localField: "host",
+        foreignField: "_id",
+        as: "host",
+      },
+    },
+    { $unwind: "$host" },
+
+    {
+      $project: {
+        scootyModel: 1,
+        city: 1,
+        booking: {
+          startDate: "$bookings.startDate",
+          endDate: "$bookings.endDate",
+          totalPrice: "$bookings.totalPrice",
+          status: "$bookings.bookingStatus",
+        },
+        host: {
+          name: "$host.name",
+          email: "$host.email",
+          phone: "$host.phone",
+        },
+      },
+    },
+  ]);
+
+  const totalSpent = rides.reduce(
+    (sum, r) => sum + (r.booking.totalPrice || 0),
+    0
+  );
+
+  return res.status(200).json(
+    new apiresponse(200, {
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        photo: user.profile.photo,
+        profileCompletion: calculateProfileCompletion(user),
+      },
+      documents: Array.isArray(user.verifiedDoc)
+      ? user.verifiedDoc
+      : [],
+      rides,
+      totalSpent,
+      totalRides: rides.length,
+    })
   );
 });
 
@@ -109,14 +185,12 @@ const updateUserDocumentStatus = asynchandler(async (req, res) => {
   const { userId, docIndex, status } = req.body;
 
   if (!["approved", "rejected"].includes(status)) {
-    throw new apierror(400, "Invalid document status");
+    throw new apierror(400, "Invalid status");
   }
 
   const user = await User.findById(userId);
-  if (!user) throw new apierror(404, "User not found");
-
-  if (!user.verifiedDoc[docIndex]) {
-    throw new apierror(400, "Invalid document index");
+  if (!user || !user.verifiedDoc[docIndex]) {
+    throw new apierror(404, "Document not found");
   }
 
   user.verifiedDoc[docIndex].status = status;
@@ -125,12 +199,12 @@ const updateUserDocumentStatus = asynchandler(async (req, res) => {
   await user.save({ validateBeforeSave: false });
 
   return res.status(200).json(
-    new apiresponse(200, {}, "User document status updated")
+    new apiresponse(200, {}, "User document updated")
   );
 });
 
 /* =====================================================
-   🏠 HOSTS (VEHICLES + EARNINGS + DOC APPROVAL)
+   🏠 HOSTS (LIST + DETAILS + DOC VERIFY)
 ===================================================== */
 
 const getAllHostsForAdmin = asynchandler(async (req, res) => {
@@ -138,9 +212,9 @@ const getAllHostsForAdmin = asynchandler(async (req, res) => {
     .populate("vehicles")
     .select("-password -refreshToken");
 
-  const hostsWithStats = await Promise.all(
+  const enriched = await Promise.all(
     hosts.map(async (host) => {
-      const earnings = await Vehicle.aggregate([
+      const stats = await Vehicle.aggregate([
         { $match: { host: host._id } },
         { $unwind: "$bookings" },
         {
@@ -160,14 +234,85 @@ const getAllHostsForAdmin = asynchandler(async (req, res) => {
       return {
         ...host.toObject(),
         totalVehicles: host.vehicles.length,
-        totalBookings: earnings[0]?.totalBookings || 0,
-        totalEarnings: earnings[0]?.totalEarnings || 0,
+        totalBookings: stats[0]?.totalBookings || 0,
+        totalEarnings: stats[0]?.totalEarnings || 0,
       };
     })
   );
 
   return res.status(200).json(
-    new apiresponse(200, hostsWithStats, "Hosts fetched successfully")
+    new apiresponse(200, enriched, "Hosts fetched")
+  );
+});
+
+const getHostDetailsForAdmin = asynchandler(async (req, res) => {
+  const host = await Host.findById(req.params.hostId)
+    .populate("vehicles")
+    .select("-password -refreshToken");
+
+  if (!host) throw new apierror(404, "Host not found");
+
+  const bookings = await Vehicle.aggregate([
+    { $match: { host: host._id } },
+    { $unwind: "$bookings" },
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "bookings.userId",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    { $unwind: "$user" },
+
+    {
+      $project: {
+        scootyModel: 1,
+        city: 1,
+        booking: {
+          startDate: "$bookings.startDate",
+          endDate: "$bookings.endDate",
+          totalPrice: "$bookings.totalPrice",
+          status: "$bookings.bookingStatus",
+        },
+        user: {
+          name: "$user.name",
+          email: "$user.email",
+          phone: "$user.phone",
+        },
+      },
+    },
+  ]);
+
+  const totalEarnings = bookings.reduce(
+    (sum, b) => sum + (b.booking.totalPrice || 0),
+    0
+  );
+
+  return res.status(200).json(
+    new apiresponse(200, {
+      host: {
+        _id: host._id,
+        name: host.name,
+        email: host.email,
+        phone: host.phone,
+        photo: host.profile.photo,
+        profileCompletion: calculateProfileCompletion({
+          phone: host.phone,
+          profile: host.profile,
+          verifiedDoc: [host.verifiedDoc],
+          email: host.email,
+        }),
+      },
+      documents: host.verifiedDoc?.docUrl
+  ? host.verifiedDoc
+  : null,
+      vehicles: host.vehicles,
+      bookings,
+      totalBookings: bookings.length,
+      totalEarnings,
+    })
   );
 });
 
@@ -175,7 +320,7 @@ const updateHostDocumentStatus = asynchandler(async (req, res) => {
   const { hostId, status } = req.body;
 
   if (!["approved", "rejected"].includes(status)) {
-    throw new apierror(400, "Invalid document status");
+    throw new apierror(400, "Invalid status");
   }
 
   const host = await Host.findById(hostId);
@@ -187,21 +332,64 @@ const updateHostDocumentStatus = asynchandler(async (req, res) => {
   await host.save({ validateBeforeSave: false });
 
   return res.status(200).json(
-    new apiresponse(200, {}, "Host document status updated")
+    new apiresponse(200, {}, "Host document updated")
   );
 });
 
 /* =====================================================
-   🛵 VEHICLES (VIEW + RC VERIFICATION)
+   🛵 VEHICLES (READ-ONLY BOOKINGS)
 ===================================================== */
 
 const getAllVehiclesForAdmin = asynchandler(async (req, res) => {
   const vehicles = await Vehicle.find()
     .populate("host", "name email phone")
-    .populate("bookings.userId", "name email");
+    .populate("bookings.userId", "name email phone profile.photo");
 
   return res.status(200).json(
-    new apiresponse(200, vehicles, "Vehicles fetched successfully")
+    new apiresponse(200, vehicles)
+  );
+});
+
+const getVehicleDetailsForAdmin = asynchandler(async (req, res) => {
+  const vehicle = await Vehicle.findById(req.params.vehicleId)
+    .populate("host", "name email phone profile.photo")
+    .populate("bookings.userId", "name email phone profile.photo");
+
+  if (!vehicle) throw new apierror(404, "Vehicle not found");
+
+  const totalEarnings = vehicle.bookings.reduce(
+    (sum, b) => sum + (b.totalPrice || 0),
+    0
+  );
+
+  return res.status(200).json(
+    new apiresponse(200, {
+      _id: vehicle._id,
+      scootyModel: vehicle.scootyModel,
+      city: vehicle.city,
+      photos: vehicle.photos,
+      rc: vehicle.documents?.rc || null,
+      isVerified: vehicle.isVerified,
+
+      host: vehicle.host,
+
+      totalBookings: vehicle.bookings.length,
+      totalEarnings,
+
+      bookings: vehicle.bookings.map((b) => ({
+        startDate: b.startDate,
+        endDate: b.endDate,
+        totalPrice: b.totalPrice,
+        status: b.bookingStatus,
+        user: b.userId
+          ? {
+              name: b.userId.name,
+              email: b.userId.email,
+              phone: b.userId.phone,
+            }
+          : null,
+      })),
+    })
   );
 });
 
@@ -209,7 +397,7 @@ const updateVehicleVerificationStatus = asynchandler(async (req, res) => {
   const { vehicleId, status } = req.body;
 
   if (!["approved", "rejected"].includes(status)) {
-    throw new apierror(400, "Invalid verification status");
+    throw new apierror(400, "Invalid status");
   }
 
   const vehicle = await Vehicle.findById(vehicleId);
@@ -224,16 +412,23 @@ const updateVehicleVerificationStatus = asynchandler(async (req, res) => {
 });
 
 /* =====================================================
-   📦 EXPORTS (AS REQUESTED)
+   📦 EXPORTS
 ===================================================== */
 
 export {
   adminLogin,
   adminLogout,
+  getCurrentAdmin,
+
   getAllUsersForAdmin,
+  getUserDetailsForAdmin,
   updateUserDocumentStatus,
+
   getAllHostsForAdmin,
+  getHostDetailsForAdmin,
   updateHostDocumentStatus,
+
   getAllVehiclesForAdmin,
-  updateVehicleVerificationStatus,getCurrentAdmin
+  getVehicleDetailsForAdmin,
+  updateVehicleVerificationStatus,
 };

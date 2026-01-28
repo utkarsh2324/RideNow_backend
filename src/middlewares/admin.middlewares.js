@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
-import { Admin } from "../models/admin.model.js";
 
-export const verifyAdminJWT = async (req, res, next) => {
+export const verifyAdminJWT = (req, res, next) => {
   try {
     const token =
       req.cookies?.adminAccessToken ||
@@ -18,14 +17,22 @@ export const verifyAdminJWT = async (req, res, next) => {
       process.env.ADMIN_ACCESS_TOKEN_SECRET
     );
 
-    const admin = await Admin.findById(decoded._id);
-    if (!admin) {
-      return res.status(401).json({
-        message: "Unauthorized: Admin not found",
+    // ✅ Validate admin identity via ENV
+    if (
+      decoded.role !== "admin" ||
+      decoded.email !== process.env.ADMIN_EMAIL
+    ) {
+      return res.status(403).json({
+        message: "Forbidden: Not an admin",
       });
     }
 
-    req.admin = admin; // attach admin to request
+    // ✅ Attach admin directly (NO DB)
+    req.admin = {
+      email: decoded.email,
+      role: "admin",
+    };
+
     next();
   } catch (err) {
     return res.status(401).json({

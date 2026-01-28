@@ -3,64 +3,85 @@ import express from "express";
 import {
   adminLogin,
   adminLogout,
+  getCurrentAdmin,
+
   getAllUsersForAdmin,
+  getUserDetailsForAdmin,
   updateUserDocumentStatus,
+
   getAllHostsForAdmin,
+  getHostDetailsForAdmin,
   updateHostDocumentStatus,
+
   getAllVehiclesForAdmin,
-  updateVehicleVerificationStatus,getCurrentAdmin
+  getVehicleDetailsForAdmin,
+  updateVehicleVerificationStatus,
 } from "../controllers/admin.controller.js";
 
 import { verifyAdminJWT } from "../middlewares/admin.middlewares.js";
 
 const router = express.Router();
 
-/* ================= PUBLIC ROUTES ================= */
+/* =====================================================
+   🔐 AUTH ROUTES
+===================================================== */
 
-// Admin Login (ENV based)
+// Admin login (ENV-based)
 router.post("/login", adminLogin);
 
-/* ================= PROTECTED ROUTES ================= */
-
-// Admin Logout
+// Admin logout
 router.post("/logout", verifyAdminJWT, adminLogout);
-router.get(
-    "/current-admin",
-    verifyAdminJWT,
-    getCurrentAdmin
-  );
-/* ---------- RENT USERS ---------- */
 
-// Get all rent users with stats
+// Fetch current admin (page refresh)
+router.get("/current-admin", verifyAdminJWT, getCurrentAdmin);
+
+/* =====================================================
+   👤 USERS
+===================================================== */
+
+// List all users (stats + docs)
 router.get("/users", verifyAdminJWT, getAllUsersForAdmin);
 
-// Approve / Reject user documents
+// Single user full details
+router.get("/users/:userId", verifyAdminJWT, getUserDetailsForAdmin);
+
+// Approve / Reject user document
 router.patch(
-  "/user/update-doc-status",
+  "/users/document",
   verifyAdminJWT,
   updateUserDocumentStatus
 );
 
-/* ---------- HOSTS ---------- */
+/* =====================================================
+   🏠 HOSTS
+===================================================== */
 
-// Get all hosts with earnings & vehicles
+// List all hosts (earnings + vehicles)
 router.get("/hosts", verifyAdminJWT, getAllHostsForAdmin);
 
-// Approve / Reject host Aadhaar
+// Single host full details
+router.get("/hosts/:hostId", verifyAdminJWT, getHostDetailsForAdmin);
+
+// Approve / Reject host document
 router.patch(
-  "/host/update-doc-status",
+  "/hosts/document",
   verifyAdminJWT,
   updateHostDocumentStatus
 );
 
-/* ---------- VEHICLES ---------- */
+/* =====================================================
+   🛵 VEHICLES
+===================================================== */
 
-// Get all vehicles with host + bookings
+// List all vehicles (read-only bookings)
 router.get("/vehicles", verifyAdminJWT, getAllVehiclesForAdmin);
 
-// Approve / Reject vehicle RC
+// Single vehicle full details
+router.get("/vehicles/:vehicleId", verifyAdminJWT, getVehicleDetailsForAdmin);
+
+// Approve / Reject vehicle verification (RC)
 router.patch(
-  "/vehicle/update-verification",
+  "/vehicles/verify",
   verifyAdminJWT,
   updateVehicleVerificationStatus
 );
