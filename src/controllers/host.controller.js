@@ -325,10 +325,17 @@ const getHostVehicles = asynchandler(async (req, res) => {
   // ✅ Step 1: Get hostId from JWT middleware
   const hostId = req.user._id;
 
-  // ✅ Step 2: Find host and populate their vehicles
+  // ✅ Step 2: Find host and populate vehicles (NEW LOCATION SCHEMA)
   const host = await Host.findById(hostId).populate({
     path: "vehicles",
-    select: "scootyModel location photos isVerified isAvailable availableFrom availableTo createdAt", // choose only relevant fields
+    select: `
+      scootyModel
+      pickupLocation
+      photos
+      isVerified
+      isAvailable
+      createdAt
+    `,
   });
 
   if (!host) {
@@ -342,11 +349,26 @@ const getHostVehicles = asynchandler(async (req, res) => {
       .json(new apiresponse(200, [], "No vehicles hosted yet."));
   }
 
-  // ✅ Step 4: Return hosted vehicles
+  // ✅ Step 4: Shape response cleanly (OPTIONAL but recommended)
+  const vehicles = host.vehicles.map((v) => ({
+    _id: v._id,
+    scootyModel: v.scootyModel,
+    photos: v.photos,
+    isVerified: v.isVerified,
+    isAvailable: v.isAvailable,
+    pickupLocation: {
+      address: v.pickupLocation?.address || "",
+      landmark: v.pickupLocation?.landmark || "",
+      city: v.pickupLocation?.city || "",
+    },
+    createdAt: v.createdAt,
+  }));
+
+  // ✅ Step 5: Return hosted vehicles
   return res.status(200).json(
     new apiresponse(
       200,
-      host.vehicles,
+      vehicles,
       "Hosted vehicles fetched successfully."
     )
   );

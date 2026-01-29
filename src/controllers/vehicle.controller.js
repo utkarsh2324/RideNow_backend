@@ -489,7 +489,7 @@ const deleteVehicle = asynchandler(async (req, res) => {
       .status(200)
       .json(new apiresponse(200, {}, "Vehicle deleted successfully"));
   });
-  const getVehicleDetails = asynchandler(async (req, res) => {
+const getVehicleDetails = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
   
     if (!vehicleId) {
@@ -836,25 +836,9 @@ const autoCompleteExpiredBookings = async (vehicle) => {
     await vehicle.save();
   }
 };
-const getHostVehicles = asynchandler(async (req, res) => {
-  const hostId = req.user._id;
 
-  const vehicles = await Vehicle.find({ host: hostId })
-    .select(
-      "scootyModel photos isAvailable pickupLocation pricing createdAt"
-    )
-    .lean();
-
-  return res.status(200).json(
-    new apiresponse(
-      200,
-      vehicles,
-      "Host vehicles fetched successfully"
-    )
-  );
-});
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice,getHostVehicles
+    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice
 };
 

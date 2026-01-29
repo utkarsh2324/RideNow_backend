@@ -55,6 +55,5 @@ router.patch(
     verifyJWT,
     previewVehiclePrice
   );
-  router.get("/hosted", verifyHostJWT, getHostVehicles);
 export default router;
 
