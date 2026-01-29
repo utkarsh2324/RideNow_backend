@@ -131,7 +131,7 @@ const verifyRC = asynchandler(async (req, res) => {
 });
 const updateVehicle = asynchandler(async (req, res) => {
   const { vehicleId } = req.params;
-  const { pickupLocation, pricing } = req.body;
+  const { pickupLocation, pricing, lat, lng } = req.body;
   const hostId = req.user._id;
 
   const vehicle = await Vehicle.findById(vehicleId);
@@ -161,7 +161,7 @@ const updateVehicle = asynchandler(async (req, res) => {
     }
   }
 
-  /* ---------- UPDATE LOCATION ---------- */
+  /* ---------- UPDATE LOCATION TEXT ---------- */
   if (pickupLocation) {
     if (pickupLocation.address !== undefined)
       vehicle.pickupLocation.address = pickupLocation.address;
@@ -171,6 +171,14 @@ const updateVehicle = asynchandler(async (req, res) => {
 
     if (pickupLocation.city !== undefined)
       vehicle.pickupLocation.city = pickupLocation.city;
+  }
+
+  /* ---------- UPDATE GPS (ONLY IF PROVIDED) ---------- */
+  if (lat && lng) {
+    vehicle.pickupLocation.coordinates = {
+      type: "Point",
+      coordinates: [Number(lng), Number(lat)],
+    };
   }
 
   /* ---------- UPDATE PRICING ---------- */
@@ -189,18 +197,14 @@ const updateVehicle = asynchandler(async (req, res) => {
     );
   }
 
-  await vehicle.save();
+  // ✅ CRITICAL FIX
+  await vehicle.save({ validateModifiedOnly: true });
 
-  /* ---------- RETURN POPULATED VEHICLE ---------- */
   const updatedVehicle = await Vehicle.findById(vehicle._id)
     .populate("host", "name email phone");
 
   return res.status(200).json(
-    new apiresponse(
-      200,
-      updatedVehicle,
-      "Vehicle details updated successfully"
-    )
+    new apiresponse(200, updatedVehicle, "Vehicle updated successfully")
   );
 });
 const toggleVehicleAvailability = asynchandler(async (req, res) => {
