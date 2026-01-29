@@ -131,16 +131,7 @@ const verifyRC = asynchandler(async (req, res) => {
 });
 const updateVehicle = asynchandler(async (req, res) => {
   const { vehicleId } = req.params;
-  const {
-    address,
-    landmark,
-    city,
-    lat,
-    lng,
-    weekdayPrice,
-    weekendPrice,
-  } = req.body;
-
+  const { pickupLocation, pricing } = req.body;
   const hostId = req.user._id;
 
   const vehicle = await Vehicle.findById(vehicleId);
@@ -150,16 +141,16 @@ const updateVehicle = asynchandler(async (req, res) => {
     throw new apierror(403, "Forbidden");
   }
 
-  // 🔍 Detect price update attempt
+  /* ---------- PRICE UPDATE CHECK ---------- */
   const isPriceUpdate =
-    weekdayPrice !== undefined || weekendPrice !== undefined;
+    pricing?.weekdayPrice !== undefined ||
+    pricing?.weekendPrice !== undefined;
 
-  // 🚫 Block price update if active booking exists
   if (isPriceUpdate) {
     const hasActiveBooking = vehicle.bookings.some(
-      booking =>
-        booking.bookingStatus === "confirmed" &&
-        new Date(booking.endDate) >= new Date()
+      (b) =>
+        b.bookingStatus === "confirmed" &&
+        new Date(b.endDate) >= new Date()
     );
 
     if (hasActiveBooking) {
@@ -170,44 +161,44 @@ const updateVehicle = asynchandler(async (req, res) => {
     }
   }
 
-  // 📍 Update pickup location (partial updates allowed)
-  if (address) vehicle.pickupLocation.address = address;
-  if (landmark !== undefined)
-    vehicle.pickupLocation.landmark = landmark;
-  if (city) vehicle.pickupLocation.city = city;
+  /* ---------- UPDATE LOCATION ---------- */
+  if (pickupLocation) {
+    if (pickupLocation.address !== undefined)
+      vehicle.pickupLocation.address = pickupLocation.address;
 
-  if (lat && lng) {
-    vehicle.pickupLocation.coordinates = {
-      lat: Number(lat),
-      lng: Number(lng),
-    };
+    if (pickupLocation.landmark !== undefined)
+      vehicle.pickupLocation.landmark = pickupLocation.landmark;
+
+    if (pickupLocation.city !== undefined)
+      vehicle.pickupLocation.city = pickupLocation.city;
   }
 
-  // 💰 Update pricing
-  if (weekdayPrice !== undefined) {
-    vehicle.pricing.weekdayPrice = Number(weekdayPrice);
+  /* ---------- UPDATE PRICING ---------- */
+  if (pricing?.weekdayPrice !== undefined) {
+    vehicle.pricing.weekdayPrice = Number(pricing.weekdayPrice);
   }
 
-  if (weekendPrice !== undefined) {
-    vehicle.pricing.weekendPrice = Number(weekendPrice);
+  if (pricing?.weekendPrice !== undefined) {
+    vehicle.pricing.weekendPrice = Number(pricing.weekendPrice);
   }
 
-  // 🧮 Pricing validation
-  if (
-    vehicle.pricing.weekendPrice < vehicle.pricing.weekdayPrice
-  ) {
+  if (vehicle.pricing.weekendPrice < vehicle.pricing.weekdayPrice) {
     throw new apierror(
       400,
       "Weekend price cannot be less than weekday price"
     );
   }
 
-  await vehicle.save({ validateBeforeSave: false });
+  await vehicle.save();
+
+  /* ---------- RETURN POPULATED VEHICLE ---------- */
+  const updatedVehicle = await Vehicle.findById(vehicle._id)
+    .populate("host", "name email phone");
 
   return res.status(200).json(
     new apiresponse(
       200,
-      vehicle,
+      updatedVehicle,
       "Vehicle details updated successfully"
     )
   );
@@ -285,7 +276,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
               coordinates: [Number(lng), Number(lat)],
             },
             distanceField: "distanceInMeters",
-            maxDistance: 20 * 1000, // 20 KM
+            maxDistance: 50 * 1000, // 20 KM
             spherical: true,
             query: {
               isVerified: true,
@@ -329,7 +320,13 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     /* ---------------- REMOVE DUPLICATES ---------------- */
     const uniqueVehicles = Object.values(
       vehicles.reduce((acc, v) => {
-        acc[v._id.toString()] = v;
+        const id = v._id.toString();
+    
+        // keep geoNear version if it already exists
+        if (!acc[id] || acc[id].distanceInMeters === undefined) {
+          acc[id] = v;
+        }
+    
         return acc;
       }, {})
     );
