@@ -9,7 +9,7 @@ import {
     searchVehicles, 
     bookVehicle,
     deleteVehicle ,verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-   getHostBookings,confirmBookingByHost,previewVehiclePrice,getHostVehicles
+   getHostBookings,confirmBookingByHost,previewVehiclePrice
 } from "../controllers/vehicle.controller.js";
 
 const router = express.Router();
