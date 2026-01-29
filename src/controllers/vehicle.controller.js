@@ -836,8 +836,25 @@ const autoCompleteExpiredBookings = async (vehicle) => {
     await vehicle.save();
   }
 };
+const getHostVehicles = asynchandler(async (req, res) => {
+  const hostId = req.user._id;
+
+  const vehicles = await Vehicle.find({ host: hostId })
+    .select(
+      "scootyModel photos isAvailable pickupLocation pricing createdAt"
+    )
+    .lean();
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      vehicles,
+      "Host vehicles fetched successfully"
+    )
+  );
+});
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice
+    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice,getHostVehicles
 };
 
