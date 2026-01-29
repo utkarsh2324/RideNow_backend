@@ -270,7 +270,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   
     let vehicles = [];
   
-    // ✅ STRICT validation
+    // ✅ STRICT GPS VALIDATION
     const hasValidCoords =
       lat !== undefined &&
       lng !== undefined &&
@@ -279,7 +279,9 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       !isNaN(Number(lat)) &&
       !isNaN(Number(lng));
   
-    /* ---------------- GEO SEARCH ---------------- */
+    /* =====================================================
+       ✅ CASE 1: GPS SEARCH (distance included)
+       ===================================================== */
     if (hasValidCoords) {
       vehicles = await Vehicle.aggregate([
         {
@@ -291,7 +293,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
             key: "pickupLocation.coordinates",
             distanceField: "distanceInMeters",
             spherical: true,
-            maxDistance: 50 * 1000,
+            maxDistance: 50 * 1000, // 50 KM
             query: {
               isVerified: true,
               isAvailable: true,
@@ -311,14 +313,16 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       ]);
     }
   
-    /* ---------------- TEXT SEARCH (fallback) ---------------- */
-    if (location) {
+    /* =====================================================
+       ✅ CASE 2: TEXT SEARCH (NO distance)
+       ===================================================== */
+    else if (location) {
       const locationParts = location
         .split(/[,\s]+/)
         .filter(Boolean)
         .map((part) => new RegExp(part, "i"));
   
-      const cityVehicles = await Vehicle.find({
+      vehicles = await Vehicle.find({
         isVerified: true,
         isAvailable: true,
         $or: [
@@ -327,23 +331,15 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
         ],
         bookings: bookingFilter,
       }).populate("host", "name email");
-  
-      vehicles = [...vehicles, ...cityVehicles];
     }
-  
-    /* ---------------- REMOVE DUPLICATES ---------------- */
-    const uniqueVehicles = Object.values(
-      vehicles.reduce((acc, v) => {
-        acc[v._id.toString()] = v;
-        return acc;
-      }, {})
-    );
   
     return res.status(200).json(
       new apiresponse(
         200,
-        uniqueVehicles,
-        "Vehicles fetched successfully."
+        vehicles,
+        hasValidCoords
+          ? "Nearby vehicles fetched using GPS."
+          : "Vehicles fetched using location search."
       )
     );
   });
