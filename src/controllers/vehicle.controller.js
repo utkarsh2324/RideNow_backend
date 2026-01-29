@@ -509,18 +509,25 @@ const deleteVehicle = asynchandler(async (req, res) => {
     const vehicleDetails = {
       _id: vehicle._id,
       scootyModel: vehicle.scootyModel,
-      location: vehicle.location,
+    
+      pickupLocation: {
+        address: vehicle.pickupLocation?.address || "",
+        landmark: vehicle.pickupLocation?.landmark || "",
+        city: vehicle.pickupLocation?.city || "",
+        coordinates: vehicle.pickupLocation?.coordinates || null,
+      },
+    
       photos: vehicle.photos,
       rcDocument: vehicle.documents?.rc,
       isVerified: vehicle.isVerified,
       isAvailable: vehicle.isAvailable,
-      createdAt: vehicle.createdAt,
-      updatedAt: vehicle.updatedAt,
+      pricing: vehicle.pricing,
+    
       host: {
-        _id: vehicle.host?._id || null,
-        name: vehicle.host?.name || "Unknown",
-        email: vehicle.host?.email || "Not provided",
-        phone: vehicle.host?.phone || "Not provided",
+        _id: vehicle.host?._id,
+        name: vehicle.host?.name,
+        email: vehicle.host?.email,
+        phone: vehicle.host?.phone,
         photo: vehicle.host?.profile?.photo || "",
       },
     };
