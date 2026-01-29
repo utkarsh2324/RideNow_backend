@@ -15,10 +15,13 @@ import { calculateBookingPrice } from "../utils/calculateBookingprice.js";
 const addVehicle = asynchandler(async (req, res) => {
   const {
     scootyModel,
-    location,
+    address,
+    landmark,
     city,
     weekdayPrice,
-    weekendPrice
+    weekendPrice,
+    lat,
+    lng,
   } = req.body;
 
   const hostId = req.user._id;
@@ -26,12 +29,12 @@ const addVehicle = asynchandler(async (req, res) => {
   // ✅ Basic validation
   if (
     !scootyModel ||
-    !location ||
+    !address ||
     !city ||
     !weekdayPrice ||
     !weekendPrice
   ) {
-    throw new apierror(400, "All fields including pricing are required.");
+    throw new apierror(400, "All required fields including pricing are mandatory.");
   }
 
   if (Number(weekendPrice) < Number(weekdayPrice)) {
@@ -45,7 +48,7 @@ const addVehicle = asynchandler(async (req, res) => {
     );
   }
 
-  // 📤 Upload images
+  // 📤 Upload images to Cloudinary
   const photoUploadPromises = req.files.photos.map(file =>
     uploadOnCloudinary(file.buffer)
   );
@@ -63,8 +66,15 @@ const addVehicle = asynchandler(async (req, res) => {
   const vehicle = await Vehicle.create({
     host: hostId,
     scootyModel,
-    location,
-    city,
+    pickupLocation: {
+      address,
+      landmark, // optional
+      city,
+      coordinates: lat && lng ? {
+        lat: Number(lat),
+        lng: Number(lng),
+      } : undefined,
+    },
     pricing: {
       weekdayPrice: Number(weekdayPrice),
       weekendPrice: Number(weekendPrice),
@@ -73,7 +83,7 @@ const addVehicle = asynchandler(async (req, res) => {
     documents: {
       rc: rcResult.secure_url,
     },
-    isVerified: true,
+    isVerified: true, // or false if admin approval is needed
   });
 
   // 🔗 Attach vehicle to host
@@ -82,15 +92,13 @@ const addVehicle = asynchandler(async (req, res) => {
     { $push: { vehicles: vehicle._id } }
   );
 
-  return res
-    .status(201)
-    .json(
-      new apiresponse(
-        201,
-        vehicle,
-        "Vehicle added successfully. Awaiting verification."
-      )
-    );
+  return res.status(201).json(
+    new apiresponse(
+      201,
+      vehicle,
+      "Vehicle added successfully. Awaiting verification."
+    )
+  );
 });
 const verifyRC = asynchandler(async (req, res) => {
   if (!req.file) {
@@ -121,7 +129,15 @@ const verifyRC = asynchandler(async (req, res) => {
 });
 const updateVehicle = asynchandler(async (req, res) => {
   const { vehicleId } = req.params;
-  const { location, weekdayPrice, weekendPrice } = req.body;
+  const {
+    address,
+    landmark,
+    city,
+    lat,
+    lng,
+    weekdayPrice,
+    weekendPrice,
+  } = req.body;
 
   const hostId = req.user._id;
 
@@ -152,9 +168,20 @@ const updateVehicle = asynchandler(async (req, res) => {
     }
   }
 
-  // 📍 Update fields
-  if (location) vehicle.location = location;
+  // 📍 Update pickup location (partial updates allowed)
+  if (address) vehicle.pickupLocation.address = address;
+  if (landmark !== undefined)
+    vehicle.pickupLocation.landmark = landmark;
+  if (city) vehicle.pickupLocation.city = city;
 
+  if (lat && lng) {
+    vehicle.pickupLocation.coordinates = {
+      lat: Number(lat),
+      lng: Number(lng),
+    };
+  }
+
+  // 💰 Update pricing
   if (weekdayPrice !== undefined) {
     vehicle.pricing.weekdayPrice = Number(weekdayPrice);
   }
@@ -175,15 +202,13 @@ const updateVehicle = asynchandler(async (req, res) => {
 
   await vehicle.save({ validateBeforeSave: false });
 
-  return res
-    .status(200)
-    .json(
-      new apiresponse(
-        200,
-        vehicle,
-        "Vehicle details updated successfully"
-      )
-    );
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      vehicle,
+      "Vehicle details updated successfully"
+    )
+  );
 });
 const toggleVehicleAvailability = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
@@ -699,22 +724,49 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   );
 });
 const autoCompleteExpiredBookings = async (vehicle) => {
-  let updated = false;
   const now = new Date();
+  let updated = false;
 
-  vehicle.bookings.forEach((b) => {
+  // Populate host once
+  await vehicle.populate("host");
+
+  for (const booking of vehicle.bookings) {
     if (
-      b.bookingStatus === "confirmed" &&
-      new Date(b.endDate) < now
+      booking.bookingStatus === "confirmed" &&
+      new Date(booking.endDate) < now
     ) {
-      b.bookingStatus = "completed";
-      b.returnedAt = now;
+      booking.bookingStatus = "completed";
+      booking.returnedAt = now;
       updated = true;
+
+      // 🔍 Fetch renter
+      const user = await User.findById(booking.userId);
+      if (!user) continue;
+
+      console.log("📨 Auto-ending booking → sending emails");
+
+      // 📧 Send email
+      await sendBookingEndedEmail({
+        renterEmail: user.email,
+        renterName: user.name,
+        hostEmail: vehicle.host?.email,
+        hostName: vehicle.host?.name,
+        vehicleModel: vehicle.scootyModel,
+        fromDate: booking.startDate.toLocaleDateString(),
+        toDate: booking.endDate.toLocaleDateString(),
+        totalPrice: booking.totalPrice,
+        autoEnded: true,
+      });
+
+      // Update renter status
+      user.isBookedVehicle = false;
+      await user.save();
     }
-  });
+  }
 
   if (updated) {
     vehicle.isAvailable = true;
+    vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
     await vehicle.save();
   }
 };

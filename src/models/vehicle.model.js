@@ -8,80 +8,91 @@ const vehicleSchema = new Schema(
       required: true,
       index: true,
     },
+
     scootyModel: {
       type: String,
       required: true,
       trim: true,
-      description: "e.g., 'Honda Activa', 'TVS Jupiter', 'Ola S1 Pro'",
     },
+
     documents: {
       rc: {
-        type: String, // URL from Cloudinary
+        type: String,
         required: true,
-      }
+      },
     },
+
     isVerified: {
       type: Boolean,
       default: false,
-      description: "Set to true by an admin after verifying documents",
     },
-    location: {
-      type: String,
-      required: true,
-      trim: true,
-      description: "e.g., 'Koramangala, Bangalore'",
+
+    pickupLocation: {
+      address: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      landmark: {
+        type: String,
+        trim: true,
+      },
+      city: {
+        type: String,
+        required: true,
+        trim: true,
+        index: true,
+      },
+      coordinates: {
+        lat: { type: Number },
+        lng: { type: Number },
+      },
     },
-    city: {
-      type: String,
-      required: true,
-      trim: true,
-      description: "e.g., 'Koramangala, Bangalore'",
-    },
+
     photos: [
       {
-        type: String, // URLs from Cloudinary
+        type: String,
         required: true,
       },
     ],
+
     isAvailable: {
       type: Boolean,
       default: true,
-      description: "Can be toggled by the host to quickly take it off the listing",
     },
+
     pricing: {
       weekdayPrice: {
         type: Number,
         required: true,
         min: 1,
-        description: "Price per day from Monday to Friday",
       },
       weekendPrice: {
         type: Number,
         required: true,
         min: 1,
-        description: "Price per day for Saturday & Sunday",
       },
     },
+
     bookings: [
       {
-        userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
         startDate: { type: Date, required: true },
         endDate: { type: Date, required: true },
-        returnedAt: {
-          type: Date
-        },
+        returnedAt: { type: Date },
         totalPrice: { type: Number, required: true },
         bookingStatus: {
           type: String,
-          enum: ['pending', 'confirmed', 'completed', 'canceled'],
-          lowercase: true, 
-          default: 'pending',
-        }
+          enum: ["pending", "confirmed", "completed", "canceled"],
+          default: "pending",
+        },
       },
     ],
-    NumberOfBooking:{
-      type:Number
-    }
+
+    NumberOfBooking: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
