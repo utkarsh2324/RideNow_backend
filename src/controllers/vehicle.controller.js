@@ -270,8 +270,17 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   
     let vehicles = [];
   
-    /* ---------------- GEO SEARCH (20 KM) ---------------- */
-    if (lat && lng) {
+    // ✅ STRICT validation
+    const hasValidCoords =
+      lat !== undefined &&
+      lng !== undefined &&
+      lat !== null &&
+      lng !== null &&
+      !isNaN(Number(lat)) &&
+      !isNaN(Number(lng));
+  
+    /* ---------------- GEO SEARCH ---------------- */
+    if (hasValidCoords) {
       vehicles = await Vehicle.aggregate([
         {
           $geoNear: {
@@ -279,9 +288,10 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
               type: "Point",
               coordinates: [Number(lng), Number(lat)],
             },
+            key: "pickupLocation.coordinates",
             distanceField: "distanceInMeters",
-            maxDistance: 50 * 1000, // 20 KM
             spherical: true,
+            maxDistance: 50 * 1000,
             query: {
               isVerified: true,
               isAvailable: true,
@@ -301,7 +311,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       ]);
     }
   
-    /* ---------------- CITY / TEXT SEARCH ---------------- */
+    /* ---------------- TEXT SEARCH (fallback) ---------------- */
     if (location) {
       const locationParts = location
         .split(/[,\s]+/)
@@ -324,13 +334,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     /* ---------------- REMOVE DUPLICATES ---------------- */
     const uniqueVehicles = Object.values(
       vehicles.reduce((acc, v) => {
-        const id = v._id.toString();
-    
-        // keep geoNear version if it already exists
-        if (!acc[id] || acc[id].distanceInMeters === undefined) {
-          acc[id] = v;
-        }
-    
+        acc[v._id.toString()] = v;
         return acc;
       }, {})
     );
@@ -339,7 +343,7 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
       new apiresponse(
         200,
         uniqueVehicles,
-        "Nearby and city-based vehicles fetched successfully."
+        "Vehicles fetched successfully."
       )
     );
   });
