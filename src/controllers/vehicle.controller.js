@@ -48,7 +48,7 @@ const addVehicle = asynchandler(async (req, res) => {
     );
   }
 
-  // 📤 Upload images to Cloudinary
+  // 📤 Upload images
   const photoUploadPromises = req.files.photos.map(file =>
     uploadOnCloudinary(file.buffer)
   );
@@ -62,18 +62,20 @@ const addVehicle = asynchandler(async (req, res) => {
 
   const photoUrls = photoResults.map(result => result.secure_url);
 
-  // 🚗 Create vehicle
+  // 🚗 Create vehicle (GEOJSON FIX APPLIED ✅)
   const vehicle = await Vehicle.create({
     host: hostId,
     scootyModel,
     pickupLocation: {
       address,
-      landmark, // optional
+      landmark,
       city,
-      coordinates: lat && lng ? {
-        lat: Number(lat),
-        lng: Number(lng),
-      } : undefined,
+      ...(lat && lng && {
+        coordinates: {
+          type: "Point",
+          coordinates: [Number(lng), Number(lat)], // MUST be [lng, lat]
+        },
+      }),
     },
     pricing: {
       weekdayPrice: Number(weekdayPrice),
@@ -83,7 +85,7 @@ const addVehicle = asynchandler(async (req, res) => {
     documents: {
       rc: rcResult.secure_url,
     },
-    isVerified: true, // or false if admin approval is needed
+    isVerified: true,
   });
 
   // 🔗 Attach vehicle to host
@@ -240,48 +242,104 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
     );
   });
   const searchVehicles = asynchandler(async (req, res) => {
-    const { location, fromDate, toDate, fromTime, toTime } = req.query;
+    const {
+      location,
+      lat,
+      lng,
+      fromDate,
+      toDate,
+      fromTime,
+      toTime,
+    } = req.query;
   
-    if (!location || !fromDate || !toDate || !fromTime || !toTime) {
-      throw new apierror(400, "Location, date and time are required.");
+    if (!fromDate || !toDate || !fromTime || !toTime) {
+      throw new apierror(400, "Date and time are required.");
     }
   
-    const requestedStart = new Date(
-      new Date(`${fromDate}T${fromTime}:00`).toISOString()
-    );
-    const requestedEnd = new Date(
-      new Date(`${toDate}T${toTime}:00`).toISOString()
-    );
+    const requestedStart = new Date(`${fromDate}T${fromTime}:00`);
+    const requestedEnd = new Date(`${toDate}T${toTime}:00`);
   
     if (requestedStart >= requestedEnd) {
       throw new apierror(400, "Invalid date/time range.");
     }
   
-    const locationParts = location
-      .split(/[,\s]+/)
-      .filter(Boolean)
-      .map((part) => new RegExp(part, "i"));
-  
-    const vehicles = await Vehicle.find({
-      isVerified: true,
-      isAvailable: true,
-      $or: [
-        { location: { $in: locationParts } },
-        { city: { $in: locationParts } },
-      ],
-      bookings: {
-        $not: {
-          $elemMatch: {
-            bookingStatus: "confirmed",
-            startDate: { $lt: requestedEnd },
-            endDate: { $gt: requestedStart },
-          },
+    const bookingFilter = {
+      $not: {
+        $elemMatch: {
+          bookingStatus: "confirmed",
+          startDate: { $lt: requestedEnd },
+          endDate: { $gt: requestedStart },
         },
       },
-    }).populate("host", "name email");
+    };
+  
+    let vehicles = [];
+  
+    /* ---------------- GEO SEARCH (20 KM) ---------------- */
+    if (lat && lng) {
+      vehicles = await Vehicle.aggregate([
+        {
+          $geoNear: {
+            near: {
+              type: "Point",
+              coordinates: [Number(lng), Number(lat)],
+            },
+            distanceField: "distanceInMeters",
+            maxDistance: 20 * 1000, // 20 KM
+            spherical: true,
+            query: {
+              isVerified: true,
+              isAvailable: true,
+              bookings: bookingFilter,
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "hosts",
+            localField: "host",
+            foreignField: "_id",
+            as: "host",
+          },
+        },
+        { $unwind: "$host" },
+      ]);
+    }
+  
+    /* ---------------- CITY / TEXT SEARCH ---------------- */
+    if (location) {
+      const locationParts = location
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map((part) => new RegExp(part, "i"));
+  
+      const cityVehicles = await Vehicle.find({
+        isVerified: true,
+        isAvailable: true,
+        $or: [
+          { "pickupLocation.city": { $in: locationParts } },
+          { "pickupLocation.address": { $in: locationParts } },
+        ],
+        bookings: bookingFilter,
+      }).populate("host", "name email");
+  
+      vehicles = [...vehicles, ...cityVehicles];
+    }
+  
+    /* ---------------- REMOVE DUPLICATES ---------------- */
+    const uniqueVehicles = Object.values(
+      vehicles.reduce((acc, v) => {
+        acc[v._id.toString()] = v;
+        return acc;
+      }, {})
+    );
   
     return res.status(200).json(
-      new apiresponse(200, vehicles, "Available vehicles fetched successfully.")
+      new apiresponse(
+        200,
+        uniqueVehicles,
+        "Nearby and city-based vehicles fetched successfully."
+      )
     );
   });
 const previewVehiclePrice = async (req, res) => {

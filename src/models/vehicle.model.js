@@ -28,24 +28,22 @@ const vehicleSchema = new Schema(
     },
 
     pickupLocation: {
-      address: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-      landmark: {
-        type: String,
-        trim: true,
-      },
+      address: String,
+      landmark: String,
       city: {
         type: String,
-        required: true,
-        trim: true,
         index: true,
       },
       coordinates: {
-        lat: { type: Number },
-        lng: { type: Number },
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point",
+        },
+        coordinates: {
+          type: [Number], // [lng, lat]
+          required: true,
+        },
       },
     },
 
@@ -96,5 +94,5 @@ const vehicleSchema = new Schema(
   },
   { timestamps: true }
 );
-
+vehicleSchema.index({ "pickupLocation.coordinates": "2dsphere" });
 export const Vehicle = mongoose.model("Vehicle", vehicleSchema);
