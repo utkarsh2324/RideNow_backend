@@ -846,7 +846,7 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   // 📧 Confirmed renter email
   try {
     if (renter?.email) {
-      await sendRentBookingConfirmedEmail({
+      await sendRentConfirmBookingEmail({
         renterEmail: renter.email,
         renterName: renter.name,
         vehicleModel: vehicle.scootyModel,
