@@ -974,8 +974,82 @@ const autoCompleteExpiredBookings = async (vehicle) => {
     }
   }
 };
+const cancelBookingByHost = asynchandler(async (req, res) => {
+  const hostId = req.user._id;
+  const { vehicleId, bookingId } = req.params;
+
+  // 🔍 Find vehicle owned by host
+  const vehicle = await Vehicle.findOne({
+    _id: vehicleId,
+    host: hostId,
+  }).populate("host", "name phone email");
+
+  if (!vehicle) {
+    throw new apierror(404, "Vehicle not found or unauthorized.");
+  }
+
+  // 🔍 Find booking
+  const booking = vehicle.bookings.id(bookingId);
+
+  if (!booking) {
+    throw new apierror(404, "Booking not found.");
+  }
+
+  // 🚫 Prevent invalid cancels
+  if (booking.bookingStatus === "confirmed") {
+    throw new apierror(
+      400,
+      "Cannot cancel a confirmed booking. Please end the ride instead."
+    );
+  }
+
+  if (booking.bookingStatus === "canceled") {
+    return res.status(200).json(
+      new apiresponse(200, {}, "Booking already cancelled.")
+    );
+  }
+
+  if (booking.bookingStatus !== "pending") {
+    throw new apierror(
+      400,
+      `Cannot cancel booking with status ${booking.bookingStatus}`
+    );
+  }
+
+  // ❌ Cancel booking
+  booking.bookingStatus = "canceled";
+  await vehicle.save();
+
+  /* ================= EMAIL TO RENTER ================= */
+  try {
+    const renter = await User.findById(booking.userId);
+
+    if (renter?.email) {
+      await sendRenterBookingCancelledEmail({
+        renterEmail: renter.email,
+        renterName: renter.name,
+        vehicleModel: vehicle.scootyModel,
+        fromDate: booking.startDate.toLocaleDateString(),
+        fromTime: booking.startDate.toLocaleTimeString(),
+        toDate: booking.endDate.toLocaleDateString(),
+        toTime: booking.endDate.toLocaleTimeString(),
+        reason: "Host declined the booking request",
+      });
+    }
+  } catch (err) {
+    console.error("❌ Cancel email failed:", err);
+  }
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      { canceledBookingId: bookingId },
+      "Booking cancelled successfully."
+    )
+  );
+});
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
-    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice
+    getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice,cancelBookingByHost
 };
 
