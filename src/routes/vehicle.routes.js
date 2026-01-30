@@ -52,7 +52,7 @@ router.patch(
   );
   router.patch(
     "/host/vehicles/:vehicleId/bookings/:bookingId/cancel",
-    verifyJWT,
+    verifyHostJWT,
     cancelBookingByHost
   );
   router.post(
