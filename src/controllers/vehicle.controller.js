@@ -667,8 +667,8 @@ const getVehicleDetails = asynchandler(async (req, res) => {
     const vehicles = await Vehicle.find({
       "bookings.userId": userId,
     })
-      .populate("host", "name email phone") // ✅ include phone
-      .select("scootyModel photos pickupLocation host bookings"); // ✅ FIXED
+      .populate("host", "name email phone")
+      .select("scootyModel photos pickupLocation host bookings");
   
     if (!vehicles.length) {
       return res.status(200).json(
@@ -676,12 +676,10 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       );
     }
   
-    // auto complete expired bookings if you already had this logic
     for (const vehicle of vehicles) {
       await autoCompleteExpiredBookings(vehicle);
     }
   
-    // ✅ Flatten bookings with correct location
     const userBookings = vehicles.flatMap((vehicle) =>
       vehicle.bookings
         .filter((b) => b.userId.toString() === userId.toString())
@@ -689,25 +687,18 @@ const getVehicleDetails = asynchandler(async (req, res) => {
           vehicleId: vehicle._id,
           scootyModel: vehicle.scootyModel,
           photos: vehicle.photos,
-  
-          // ✅ THIS IS THE IMPORTANT PART
           pickupLocation: vehicle.pickupLocation,
-  
           host: vehicle.host,
   
           bookingStatus: b.bookingStatus,
-          startDate: b.startDate,
-          endDate: b.endDate,
+          startDate: b.startDate, // ✅ contains date + time
+          endDate: b.endDate,     // ✅ contains date + time
           totalPrice: b.totalPrice,
         }))
     );
   
     return res.status(200).json(
-      new apiresponse(
-        200,
-        userBookings,
-        "User bookings fetched successfully."
-      )
+      new apiresponse(200, userBookings, "User bookings fetched successfully.")
     );
   });
 const getHostBookings = asynchandler(async (req, res) => {
