@@ -777,26 +777,44 @@ const getHostBookings = asynchandler(async (req, res) => {
       )
     );
 });
-
 const confirmBookingByHost = asynchandler(async (req, res) => {
   const hostId = req.user._id;
   const { vehicleId, bookingId } = req.params;
 
-  // 🔍 Find vehicle owned by host
-  const vehicle = await Vehicle.findOne({ _id: vehicleId, host: hostId });
+  // 🔍 Find vehicle & populate host
+  const vehicle = await Vehicle.findOne({
+    _id: vehicleId,
+    host: hostId,
+  }).populate("host", "name phone email");
+
   if (!vehicle) {
     throw new apierror(404, "Vehicle not found or unauthorized.");
   }
 
-  // 🔍 Find booking to confirm
+  // 🔍 Find booking
   const bookingToConfirm = vehicle.bookings.id(bookingId);
-  if (!bookingToConfirm || bookingToConfirm.bookingStatus !== "pending") {
-    throw new apierror(400, "Invalid booking request.");
+
+  if (!bookingToConfirm) {
+    throw new apierror(404, "Booking not found.");
+  }
+
+  // ✅ IDEMPOTENT CHECK
+  if (bookingToConfirm.bookingStatus === "confirmed") {
+    return res.status(200).json(
+      new apiresponse(200, {}, "Booking already confirmed.")
+    );
+  }
+
+  if (bookingToConfirm.bookingStatus !== "pending") {
+    throw new apierror(
+      400,
+      `Cannot confirm booking with status ${bookingToConfirm.bookingStatus}`
+    );
   }
 
   const { startDate, endDate } = bookingToConfirm;
 
-  // ✅ Confirm selected booking
+  // ✅ Confirm booking
   bookingToConfirm.bookingStatus = "confirmed";
 
   // ❌ Cancel overlapping pending bookings
@@ -816,46 +834,58 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
 
   await vehicle.save();
 
-  /* ---------------- UPDATE CONFIRMED USER STATUS ---------------- */
+  // ✅ Update confirmed renter
   const renter = await User.findByIdAndUpdate(
     bookingToConfirm.userId,
     { isBookedVehicle: true },
     { new: true }
   );
 
-  /* ---------------- EMAIL TO CONFIRMED RENTER ---------------- */
-  if (renter?.email) {
-    await sendRenterBookingConfirmedEmail({
-      renterEmail: renter.email,
-      renterName: renter.name,
-      vehicleModel: vehicle.scootyModel,
-      fromDate: bookingToConfirm.startDate.toLocaleDateString(),
-      fromTime: bookingToConfirm.startDate.toLocaleTimeString(),
-      toDate: bookingToConfirm.endDate.toLocaleDateString(),
-      toTime: bookingToConfirm.endDate.toLocaleTimeString(),
-      totalPrice: bookingToConfirm.totalPrice,
-      hostName: vehicle.hostName || "RideNow Host",
-      hostPhone:vehicle.phone
-    });
-  }
+  /* ================= EMAILS (SAFE ZONE) ================= */
 
-  /* ---------------- EMAIL TO CANCELLED RENTERS ---------------- */
-  for (const b of cancelledBookings) {
-    const cancelledUser = await User.findById(b.userId);
-
-    if (cancelledUser?.email) {
-      await sendRenterBookingCancelledEmail({
-        renterEmail: cancelledUser.email,
-        renterName: cancelledUser.name,
+  // 📧 Confirmed renter email
+  try {
+    if (renter?.email) {
+      await sendRentBookingConfirmedEmail({
+        renterEmail: renter.email,
+        renterName: renter.name,
         vehicleModel: vehicle.scootyModel,
-        fromDate: b.startDate.toLocaleDateString(),
-        fromTime: b.startDate.toLocaleTimeString(),
-        toDate: b.endDate.toLocaleDateString(),
-        toTime: b.endDate.toLocaleTimeString(),
-        reason: "Another booking was confirmed for this time slot",
+        fromDate: bookingToConfirm.startDate.toLocaleDateString(),
+        fromTime: bookingToConfirm.startDate.toLocaleTimeString(),
+        toDate: bookingToConfirm.endDate.toLocaleDateString(),
+        toTime: bookingToConfirm.endDate.toLocaleTimeString(),
+        totalPrice: bookingToConfirm.totalPrice,
+        hostName: vehicle.host?.name || "RideNow Host",
+        hostPhone: vehicle.host?.phone || "N/A",
       });
     }
+  } catch (err) {
+    console.error("❌ Confirm email failed:", err);
   }
+
+  // 📧 Cancelled renters email
+  for (const b of cancelledBookings) {
+    try {
+      const cancelledUser = await User.findById(b.userId);
+
+      if (cancelledUser?.email) {
+        await sendRenterCancelledBookingEmail({
+          renterEmail: cancelledUser.email,
+          renterName: cancelledUser.name,
+          vehicleModel: vehicle.scootyModel,
+          fromDate: b.startDate.toLocaleDateString(),
+          fromTime: b.startDate.toLocaleTimeString(),
+          toDate: b.endDate.toLocaleDateString(),
+          toTime: b.endDate.toLocaleTimeString(),
+          reason: "Another booking was confirmed for this time slot",
+        });
+      }
+    } catch (err) {
+      console.error("❌ Cancel email failed:", err);
+    }
+  }
+
+  /* ================= FINAL RESPONSE ================= */
 
   return res.status(200).json(
     new apiresponse(
@@ -864,7 +894,7 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
         confirmedBookingId: bookingId,
         cancelledCount: cancelledBookings.length,
       },
-      "Booking confirmed, overlapping bookings cancelled and users notified."
+      "Booking confirmed successfully."
     )
   );
 });
@@ -872,47 +902,76 @@ const autoCompleteExpiredBookings = async (vehicle) => {
   const now = new Date();
   let updated = false;
 
-  // Populate host once
-  await vehicle.populate("host");
+  // Populate host safely
+  try {
+    await vehicle.populate("host", "name email");
+  } catch (err) {
+    console.error("❌ Failed to populate host:", err);
+  }
 
   for (const booking of vehicle.bookings) {
-    if (
-      booking.bookingStatus === "confirmed" &&
-      new Date(booking.endDate) < now
-    ) {
-      booking.bookingStatus = "completed";
-      booking.returnedAt = now;
-      updated = true;
+    try {
+      if (
+        booking.bookingStatus === "confirmed" &&
+        new Date(booking.endDate) < now
+      ) {
+        booking.bookingStatus = "completed";
+        booking.returnedAt = now;
+        updated = true;
 
-      // 🔍 Fetch renter
-      const user = await User.findById(booking.userId);
-      if (!user) continue;
+        // 🔍 Fetch renter
+        const user = await User.findById(booking.userId);
+        if (!user) continue;
 
-      console.log("📨 Auto-ending booking → sending emails");
+        console.log(
+          `📨 Auto-ending booking ${booking._id} → sending email`
+        );
 
-      // 📧 Send email
-      await sendBookingEndedEmail({
-        renterEmail: user.email,
-        renterName: user.name,
-        hostEmail: vehicle.host?.email,
-        hostName: vehicle.host?.name,
-        vehicleModel: vehicle.scootyModel,
-        fromDate: booking.startDate.toLocaleDateString(),
-        toDate: booking.endDate.toLocaleDateString(),
-        totalPrice: booking.totalPrice,
-        autoEnded: true,
-      });
+        // 📧 EMAIL (SAFE ZONE)
+        try {
+          if (user.email) {
+            await sendBookingEndedEmail({
+              renterEmail: user.email,
+              renterName: user.name,
+              hostEmail: vehicle.host?.email || null,
+              hostName: vehicle.host?.name || "RideNow Host",
+              vehicleModel: vehicle.scootyModel,
+              fromDate: booking.startDate.toLocaleDateString(),
+              toDate: booking.endDate.toLocaleDateString(),
+              totalPrice: booking.totalPrice,
+              autoEnded: true,
+            });
+          }
+        } catch (emailErr) {
+          console.error(
+            "❌ Auto-end email failed for booking",
+            booking._id,
+            emailErr
+          );
+        }
 
-      // Update renter status
-      user.isBookedVehicle = false;
-      await user.save();
+        // Update renter booking flag
+        user.isBookedVehicle = false;
+        await user.save();
+      }
+    } catch (err) {
+      console.error(
+        "❌ Error while auto-completing booking",
+        booking._id,
+        err
+      );
     }
   }
 
+  // Save vehicle only once
   if (updated) {
-    vehicle.isAvailable = true;
-    vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
-    await vehicle.save();
+    try {
+      vehicle.isAvailable = true;
+      vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
+      await vehicle.save();
+    } catch (err) {
+      console.error("❌ Failed to save vehicle after auto-complete:", err);
+    }
   }
 };
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
