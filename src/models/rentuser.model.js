@@ -75,6 +75,21 @@ const userSchema = new Schema(
       type:Boolean,
       default:false
     },
+    // ✅ Terms & Consent
+termsConsent: {
+  accepted: {
+    type: Boolean,
+    default: false,
+  },
+  acceptedAt: {
+    type: Date,
+    default: null,
+  },
+  version: {
+    type: String,
+    default: "v1.0", // useful if terms change later
+  },
+},
     // OAuth fields
     googleId: {
       type: String,

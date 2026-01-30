@@ -11,7 +11,7 @@ import {
   changePassword,
   registerUser,verifyOtp,
   getCurrentUser,
-  verifyAadhar,verifyDL,getDocuments
+  verifyAadhar,verifyDL,getDocuments,acceptTermsAndConsent
 
 } from "../controllers/rentuser.controller.js";
 import multer from "multer";
@@ -40,4 +40,9 @@ router.get("/current-user", verifyJWT, getCurrentUser);
 router.post("/verify-aadhar", verifyJWT, upload.single("aadhar"), verifyAadhar);
 router.post("/verify-dl", verifyJWT, upload.single("dl"), verifyDL);
 router.get("/get-documents", verifyJWT, getDocuments);
+router.post(
+  "/accept-terms",
+  verifyJWT,
+  acceptTermsAndConsent
+);
 export default router;

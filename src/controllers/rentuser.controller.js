@@ -473,7 +473,46 @@ const getDocuments = async (req, res) => {
     });
   }
 };
+// ================= Accept Terms & Conditions =================
+const acceptTermsAndConsent = asynchandler(async (req, res) => {
+  const userId = req.user?._id;
 
+  if (!userId) {
+    throw new apierror(401, "Unauthorized");
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new apierror(404, "User not found");
+  }
+
+  // Already accepted → idempotent
+  if (user.termsConsent?.accepted) {
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        user.termsConsent,
+        "Terms already accepted"
+      )
+    );
+  }
+
+  user.termsConsent = {
+    accepted: true,
+    acceptedAt: new Date(),
+    version: "v1.0",
+  };
+
+  await user.save({ validateBeforeSave: false });
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      user.termsConsent,
+      "Terms & Conditions accepted successfully"
+    )
+  );
+});
 export {
   uploadProfilePhoto,
   login,
@@ -487,5 +526,5 @@ export {
   verifyOtp,
   getCurrentUser,
   verifyAadhar,
-  verifyDL,getDocuments
+  verifyDL,getDocuments,acceptTermsAndConsent
 };

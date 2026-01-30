@@ -26,7 +26,28 @@ const addVehicle = asynchandler(async (req, res) => {
 
   const hostId = req.user._id;
 
-  // ✅ Basic validation
+  /* ================= HOST AADHAAR VERIFICATION CHECK ================= */
+
+  const host = await Host.findById(hostId);
+
+  if (!host) {
+    throw new apierror(404, "Host not found.");
+  }
+
+  // ✅ Aadhaar must exist and be approved
+  if (
+    !host.verifiedDoc ||
+    host.verifiedDoc.docType !== "Aadhar" ||
+    host.verifiedDoc.status !== "approved"
+  ) {
+    throw new apierror(
+      403,
+      "Your Aadhaar verification is pending or rejected. Please complete verification before hosting a vehicle."
+    );
+  }
+
+  /* ================= BASIC VALIDATION ================= */
+
   if (
     !scootyModel ||
     !address ||
@@ -34,11 +55,17 @@ const addVehicle = asynchandler(async (req, res) => {
     !weekdayPrice ||
     !weekendPrice
   ) {
-    throw new apierror(400, "All required fields including pricing are mandatory.");
+    throw new apierror(
+      400,
+      "All required fields including pricing are mandatory."
+    );
   }
 
   if (Number(weekendPrice) < Number(weekdayPrice)) {
-    throw new apierror(400, "Weekend price cannot be less than weekday price.");
+    throw new apierror(
+      400,
+      "Weekend price cannot be less than weekday price."
+    );
   }
 
   if (!req.files || !req.files.photos || !req.files.rc) {
@@ -48,8 +75,9 @@ const addVehicle = asynchandler(async (req, res) => {
     );
   }
 
-  // 📤 Upload images
-  const photoUploadPromises = req.files.photos.map(file =>
+  /* ================= UPLOAD FILES ================= */
+
+  const photoUploadPromises = req.files.photos.map((file) =>
     uploadOnCloudinary(file.buffer)
   );
 
@@ -60,9 +88,10 @@ const addVehicle = asynchandler(async (req, res) => {
     rcUploadPromise,
   ]);
 
-  const photoUrls = photoResults.map(result => result.secure_url);
+  const photoUrls = photoResults.map((r) => r.secure_url);
 
-  // 🚗 Create vehicle (GEOJSON FIX APPLIED ✅)
+  /* ================= CREATE VEHICLE ================= */
+
   const vehicle = await Vehicle.create({
     host: hostId,
     scootyModel,
@@ -70,12 +99,13 @@ const addVehicle = asynchandler(async (req, res) => {
       address,
       landmark,
       city,
-      ...(lat && lng && {
-        coordinates: {
-          type: "Point",
-          coordinates: [Number(lng), Number(lat)], // MUST be [lng, lat]
-        },
-      }),
+      ...(lat &&
+        lng && {
+          coordinates: {
+            type: "Point",
+            coordinates: [Number(lng), Number(lat)], // [lng, lat]
+          },
+        }),
     },
     pricing: {
       weekdayPrice: Number(weekdayPrice),
@@ -88,17 +118,17 @@ const addVehicle = asynchandler(async (req, res) => {
     isVerified: true,
   });
 
-  // 🔗 Attach vehicle to host
-  await Host.findByIdAndUpdate(
-    hostId,
-    { $push: { vehicles: vehicle._id } }
-  );
+  /* ================= ATTACH VEHICLE TO HOST ================= */
+
+  await Host.findByIdAndUpdate(hostId, {
+    $push: { vehicles: vehicle._id },
+  });
 
   return res.status(201).json(
     new apiresponse(
       201,
       vehicle,
-      "Vehicle added successfully. Awaiting verification."
+      "Vehicle added successfully."
     )
   );
 });
@@ -384,82 +414,107 @@ const previewVehiclePrice = async (req, res) => {
       }, "Price preview calculated")
     );
   };
-const bookVehicle = asynchandler(async (req, res) => {
-  const { vehicleId } = req.params;
-  const { fromDate, toDate, fromTime, toTime } = req.body;
-  const userId = req.user._id;
-
-  const startDate = new Date(`${fromDate}T${fromTime}:00`);
-  const endDate = new Date(`${toDate}T${toTime}:00`);
-
-  if (endDate <= startDate) {
-    throw new apierror(400, "Invalid booking time range.");
-  }
-
-  const user = await User.findById(userId);
-  if (!user || !user.isDocVerified) {
-    throw new apierror(403, "User not verified.");
-  }
-
-  const vehicle = await Vehicle.findById(vehicleId).populate("host");
-  if (!vehicle || !vehicle.isAvailable) {
-    throw new apierror(400, "Vehicle not available.");
-  }
-
-  // 🚫 Conflict check (you already have this correct)
-  const conflict = vehicle.bookings.some(
-    (b) =>
-      b.bookingStatus === "confirmed" &&
-      startDate < b.endDate &&
-      endDate > b.startDate
-  );
-
-  if (conflict) {
-    throw new apierror(400, "Vehicle already booked for this slot.");
-  }
-
-  // 💰 PRICE CALCULATION — THIS IS WHERE IT BELONGS
-  const totalPrice = calculateBookingPrice(
-    startDate,
-    endDate,
-    vehicle.pricing
-  );
-
-  vehicle.bookings.push({
-    userId,
-    startDate,
-    endDate,
-    totalPrice,
-    bookingStatus: "pending",
-  });
-
-  await vehicle.save();
-
-  /* ---------- SEND EMAIL TO HOST ---------- */
-  if (vehicle.host?.email) {
-    await sendHostBookingEmail({
-      hostEmail: vehicle.host.email,
-      hostName: vehicle.host.name,
-      renterName: user.name,
-      renterEmail: user.email,
-      renterPhone: user.phone,
-      vehicleModel: vehicle.scootyModel,
-      fromDate,
-      fromTime,
-      toDate,
-      toTime,
-      totalPrice, // calculated securely
+  const bookVehicle = asynchandler(async (req, res) => {
+    const { vehicleId } = req.params;
+    const { fromDate, toDate, fromTime, toTime } = req.body;
+    const userId = req.user._id;
+  
+    const startDate = new Date(`${fromDate}T${fromTime}:00`);
+    const endDate = new Date(`${toDate}T${toTime}:00`);
+  
+    if (endDate <= startDate) {
+      throw new apierror(400, "Invalid booking time range.");
+    }
+  
+    const user = await User.findById(userId);
+  
+    if (!user || !user.isDocVerified) {
+      throw new apierror(403, "User not verified.");
+    }
+  
+    // ✅ TERMS & CONSENT CHECK (already added by you)
+    if (!user.termsConsent?.accepted) {
+      throw new apierror(
+        403,
+        "Please accept Terms & Conditions before booking a vehicle."
+      );
+    }
+  
+    /* =====================================================
+       ✅ NEW CONSTRAINT: ONLY ONE ACTIVE BOOKING PER USER
+       ===================================================== */
+    const hasActiveBooking = await Vehicle.exists({
+      "bookings.userId": userId,
+      "bookings.bookingStatus": { $in: ["pending", "confirmed"] },
     });
-  }
-
-  return res.status(200).json(
-    new apiresponse(
-      200,
-      { totalPrice },
-      "Booking request sent. Host has been notified via email."
-    )
-  );
-});
+  
+    if (hasActiveBooking) {
+      throw new apierror(
+        403,
+        "You already have an active booking. Please complete or cancel it before booking another vehicle."
+      );
+    }
+    /* ===================================================== */
+  
+    const vehicle = await Vehicle.findById(vehicleId).populate("host");
+    if (!vehicle || !vehicle.isAvailable) {
+      throw new apierror(400, "Vehicle not available.");
+    }
+  
+    // 🚫 Slot conflict check (unchanged)
+    const conflict = vehicle.bookings.some(
+      (b) =>
+        b.bookingStatus === "confirmed" &&
+        startDate < b.endDate &&
+        endDate > b.startDate
+    );
+  
+    if (conflict) {
+      throw new apierror(400, "Vehicle already booked for this slot.");
+    }
+  
+    // 💰 PRICE CALCULATION
+    const totalPrice = calculateBookingPrice(
+      startDate,
+      endDate,
+      vehicle.pricing
+    );
+  
+    vehicle.bookings.push({
+      userId,
+      startDate,
+      endDate,
+      totalPrice,
+      bookingStatus: "pending",
+    });
+  
+    await vehicle.save();
+  
+    /* ---------- SEND EMAIL TO HOST ---------- */
+    if (vehicle.host?.email) {
+      await sendHostBookingEmail({
+        hostEmail: vehicle.host.email,
+        hostName: vehicle.host.name,
+        renterName: user.name,
+        renterEmail: user.email,
+        renterPhone: user.phone,
+        vehicleModel: vehicle.scootyModel,
+        fromDate,
+        fromTime,
+        toDate,
+        toTime,
+        totalPrice,
+      });
+    }
+  
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        { totalPrice },
+        "Booking request sent. Host has been notified via email."
+      )
+    );
+  });
 const deleteVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const hostId = req.user._id;
@@ -605,35 +660,40 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       )
     );
   });
-const getUserBookings = asynchandler(async (req, res) => {
+  const getUserBookings = asynchandler(async (req, res) => {
     const userId = req.user._id;
   
-    // Find all vehicles where this user has bookings
     const vehicles = await Vehicle.find({
       "bookings.userId": userId,
     })
-      .populate("host", "name email")
-      .select("scootyModel photos city location bookings");
+      .populate("host", "name email phone") // ✅ include phone
+      .select("scootyModel photos pickupLocation host bookings"); // ✅ FIXED
   
     if (!vehicles.length) {
-      return res
-        .status(200)
-        .json(new apiresponse(200, [], "No bookings found for this user."));
+      return res.status(200).json(
+        new apiresponse(200, [], "No bookings found for this user.")
+      );
     }
+  
+    // auto complete expired bookings if you already had this logic
     for (const vehicle of vehicles) {
       await autoCompleteExpiredBookings(vehicle);
     }
-    // Flatten all bookings relevant to this user
-const userBookings = vehicles.flatMap((vehicle) =>
+  
+    // ✅ Flatten bookings with correct location
+    const userBookings = vehicles.flatMap((vehicle) =>
       vehicle.bookings
         .filter((b) => b.userId.toString() === userId.toString())
         .map((b) => ({
           vehicleId: vehicle._id,
           scootyModel: vehicle.scootyModel,
           photos: vehicle.photos,
-          city: vehicle.city,
-          location: vehicle.location,
+  
+          // ✅ THIS IS THE IMPORTANT PART
+          pickupLocation: vehicle.pickupLocation,
+  
           host: vehicle.host,
+  
           bookingStatus: b.bookingStatus,
           startDate: b.startDate,
           endDate: b.endDate,
@@ -648,7 +708,7 @@ const userBookings = vehicles.flatMap((vehicle) =>
         "User bookings fetched successfully."
       )
     );
-});
+  });
 const getHostBookings = asynchandler(async (req, res) => {
   const hostId = req.user._id;
 
@@ -836,7 +896,6 @@ const autoCompleteExpiredBookings = async (vehicle) => {
     await vehicle.save();
   }
 };
-
 export { addVehicle, updateVehicle, searchVehicles, bookVehicle, deleteVehicle ,
     verifyRC,toggleVehicleAvailability,getVehicleDetails,endBooking,getUserBookings,
     getHostBookings,confirmBookingByHost,autoCompleteExpiredBookings,previewVehiclePrice
