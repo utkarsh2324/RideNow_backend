@@ -43,6 +43,7 @@ Please arrive on time and enjoy your ride!
         <tr><td><strong>To:</strong></td><td>${toDate} ${toTime}</td></tr>
         <tr><td><strong>Total Price:</strong></td><td>₹${totalPrice}</td></tr>
         <tr><td><strong>Host:</strong></td><td>${hostName}</td></tr>
+        <tr><td><strong>Phone:</strong></td><td>${hostPhone}</td></tr>
       </table>
 
       <p style="margin-top:20px;text-align:center;">

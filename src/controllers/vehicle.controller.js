@@ -12,6 +12,7 @@ import { sendHostBookingEmail } from "../utils/sendHostBookingEmail.js";
 import { sendRenterBookingConfirmedEmail } from "../utils/sendRentConfirmBookingEmail.js";
 import { sendBookingEndedEmail } from "../utils/sendBookingEndedEmail.js";
 import { calculateBookingPrice } from "../utils/calculateBookingprice.js";
+import { sendRenterBookingCancelledEmail } from "../utils/sendRenterCancelledBookingEmail.js";
 const addVehicle = asynchandler(async (req, res) => {
   const {
     scootyModel,
@@ -790,11 +791,13 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   const hostId = req.user._id;
   const { vehicleId, bookingId } = req.params;
 
+  // 🔍 Find vehicle owned by host
   const vehicle = await Vehicle.findOne({ _id: vehicleId, host: hostId });
   if (!vehicle) {
     throw new apierror(404, "Vehicle not found or unauthorized.");
   }
 
+  // 🔍 Find booking to confirm
   const bookingToConfirm = vehicle.bookings.id(bookingId);
   if (!bookingToConfirm || bookingToConfirm.bookingStatus !== "pending") {
     throw new apierror(400, "Invalid booking request.");
@@ -806,6 +809,8 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   bookingToConfirm.bookingStatus = "confirmed";
 
   // ❌ Cancel overlapping pending bookings
+  const cancelledBookings = [];
+
   vehicle.bookings.forEach((b) => {
     if (
       b._id.toString() !== bookingId &&
@@ -814,19 +819,20 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
       endDate > b.startDate
     ) {
       b.bookingStatus = "canceled";
+      cancelledBookings.push(b);
     }
   });
 
   await vehicle.save();
 
-  // Update confirmed user status
+  /* ---------------- UPDATE CONFIRMED USER STATUS ---------------- */
   const renter = await User.findByIdAndUpdate(
     bookingToConfirm.userId,
     { isBookedVehicle: true },
     { new: true }
   );
 
-  /* ---------- SEND EMAIL TO RENTER ---------- */
+  /* ---------------- EMAIL TO CONFIRMED RENTER ---------------- */
   if (renter?.email) {
     await sendRenterBookingConfirmedEmail({
       renterEmail: renter.email,
@@ -838,14 +844,36 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
       toTime: bookingToConfirm.endDate.toLocaleTimeString(),
       totalPrice: bookingToConfirm.totalPrice,
       hostName: vehicle.hostName || "RideNow Host",
+      hostPhone:vehicle.phone
     });
+  }
+
+  /* ---------------- EMAIL TO CANCELLED RENTERS ---------------- */
+  for (const b of cancelledBookings) {
+    const cancelledUser = await User.findById(b.userId);
+
+    if (cancelledUser?.email) {
+      await sendRenterBookingCancelledEmail({
+        renterEmail: cancelledUser.email,
+        renterName: cancelledUser.name,
+        vehicleModel: vehicle.scootyModel,
+        fromDate: b.startDate.toLocaleDateString(),
+        fromTime: b.startDate.toLocaleTimeString(),
+        toDate: b.endDate.toLocaleDateString(),
+        toTime: b.endDate.toLocaleTimeString(),
+        reason: "Another booking was confirmed for this time slot",
+      });
+    }
   }
 
   return res.status(200).json(
     new apiresponse(
       200,
-      {},
-      "Booking confirmed and renter notified via email."
+      {
+        confirmedBookingId: bookingId,
+        cancelledCount: cancelledBookings.length,
+      },
+      "Booking confirmed, overlapping bookings cancelled and users notified."
     )
   );
 });
