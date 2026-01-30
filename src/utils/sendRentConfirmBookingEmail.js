@@ -10,6 +10,7 @@ export const sendRenterBookingConfirmedEmail = async ({
   toTime,
   totalPrice,
   hostName,
+  hostPhone
 }) => {
   await sendEmail({
     to: renterEmail,

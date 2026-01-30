@@ -846,7 +846,7 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
   // 📧 Confirmed renter email
   try {
     if (renter?.email) {
-      await sendRentConfirmBookingEmail({
+      await sendRenterBookingConfirmedEmail({
         renterEmail: renter.email,
         renterName: renter.name,
         vehicleModel: vehicle.scootyModel,
@@ -856,7 +856,7 @@ const confirmBookingByHost = asynchandler(async (req, res) => {
         toTime: bookingToConfirm.endDate.toLocaleTimeString(),
         totalPrice: bookingToConfirm.totalPrice,
         hostName: vehicle.host?.name || "RideNow Host",
-        hostPhone: vehicle.host?.phone || "N/A",
+        hostPhone: vehicle.host?.phone || "N/A", // ✅ ADD THIS
       });
     }
   } catch (err) {
