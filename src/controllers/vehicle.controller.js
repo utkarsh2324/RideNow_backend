@@ -415,13 +415,13 @@ const previewVehiclePrice = async (req, res) => {
       }, "Price preview calculated")
     );
   };
-  const bookVehicle = asynchandler(async (req, res) => {
+const bookVehicle = asynchandler(async (req, res) => {
     const { vehicleId } = req.params;
     const { fromDate, toDate, fromTime, toTime } = req.body;
     const userId = req.user._id;
   
-    const startDate = new Date(`${fromDate}T${fromTime}:00`);
-    const endDate = new Date(`${toDate}T${toTime}:00`);
+    const startDate = new Date(`${fromDate}T${fromTime}:00+05:30`);
+    const endDate   = new Date(`${toDate}T${toTime}:00+05:30`);
   
     if (endDate <= startDate) {
       throw new apierror(400, "Invalid booking time range.");
