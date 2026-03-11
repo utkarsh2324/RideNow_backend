@@ -661,7 +661,7 @@ const getVehicleDetails = asynchandler(async (req, res) => {
       )
     );
   });
-  const getUserBookings = asynchandler(async (req, res) => {
+const getUserBookings = asynchandler(async (req, res) => {
     const userId = req.user._id;
   
     const vehicles = await Vehicle.find({
