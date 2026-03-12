@@ -15,8 +15,6 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import validator from "validator";
 import { generateOtp } from "../utils/generateotp.js";
 import { sendEmail } from "../utils/sendemail.js";
-import axios from "axios"; // For document verification
-import { Blob } from "buffer"; // For document verification
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -480,12 +478,14 @@ const getCurrentUser = async (req, res) => {
 
 //
 // =================================================================
-// 3. NEW APP-SPECIFIC DOCUMENT VERIFICATION FUNCTIONS
+// 3. APP-SPECIFIC DOCUMENT VERIFICATION FUNCTIONS
+//    Matches website logic: upload to Cloudinary, mark as pending.
 // =================================================================
 //
 
 /**
- * 🔹 Verify Aadhar PDF via FastAPI and upload if valid (APP)
+ * 🔹 Upload Aadhar PDF and save to Cloudinary (APP)
+ *    No external FastAPI validation — just upload and mark pending.
  */
 const verifyAadhar = async (req, res) => {
   try {
@@ -500,78 +500,52 @@ const verifyAadhar = async (req, res) => {
       return res.status(404).json(new apiresponse(404, null, "User not found"));
     }
 
-    // 🔹 Send PDF to FastAPI
-    const aadharBlob = new Blob([req.file.buffer], { type: "application/pdf" });
-    const formData = new FormData();
-    formData.append("file", aadharBlob, "aadhar.pdf");
+    // 🔹 Upload directly to Cloudinary
+    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
 
-    const { data } = await axios.post(
-      "https://arjun9036-ridenow.hf.space/validate-aadhaar",
-      formData,
-      {
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        responseType: "text",
-      }
+    // 🔹 Check if Aadhaar already exists
+    const existingIndex = user.verifiedDoc.findIndex(
+      (doc) => doc.docType === "Aadhar"
     );
 
-    const validation = typeof data === "string" ? data : JSON.stringify(data);
+    if (existingIndex !== -1) {
+      user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
+      user.verifiedDoc[existingIndex].status = "pending";
+    } else {
+      user.verifiedDoc.push({
+        docType: "Aadhar",
+        docUrl: uploadResult.secure_url,
+        status: "pending",
+      });
+    }
 
-    if (
-      validation.includes("✅ Aadhaar number") &&
-      validation.includes("valid and found")
-    ) {
-      const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+    // ❌ Do NOT auto verify
+    user.isDocVerified = false;
 
-      // 1. Update Aadhar (as before)
-      const existingIndex = user.verifiedDoc.findIndex(
-        (doc) => doc.docType === "Aadhar"
-      );
-      if (existingIndex !== -1) {
-        user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
-        user.verifiedDoc[existingIndex].status = "approved";
-      } else {
-        user.verifiedDoc.push({
+    await user.save();
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        {
           docType: "Aadhar",
           docUrl: uploadResult.secure_url,
-          status: "approved",
-        });
-      }
-
-      // --- 2. THIS IS THE FIX ---
-      // Check the *entire* array for both approved docs
-      const hasApprovedAadhar = user.verifiedDoc.some(
-        (d) => d.docType === "Aadhar" && d.status === "approved"
-      );
-      const hasApprovedDL = user.verifiedDoc.some(
-        (d) => d.docType === "DL" && d.status === "approved"
-      );
-
-      // Only set to true if BOTH are approved
-      user.isDocVerified = hasApprovedAadhar && hasApprovedDL;
-      // --- END OF FIX ---
-
-      await user.save();
-
-      return res
-        .status(200)
-        .json(
-          new apiresponse(
-            200,
-            { docType: "Aadhar", validation },
-            "✅ Aadhaar verified and uploaded successfully"
-          )
-        );
-    } else {
-      // ... (failure response)
-    }
+          status: "pending",
+        },
+        "📄 Aadhaar uploaded successfully. Verification pending."
+      )
+    );
   } catch (error) {
-    // ... (error handling)
+    console.error("APP VERIFY AADHAR FAILED:", error);
+    return res
+      .status(500)
+      .json(new apiresponse(500, null, "Internal Server Error"));
   }
 };
 
 /**
- * 🔹 Verify Driving Licence (DL) PDF via FastAPI and upload if valid (APP)
+ * 🔹 Upload Driving Licence PDF and save to Cloudinary (APP)
+ *    No external FastAPI validation — just upload and mark pending.
  */
 const verifyDL = async (req, res) => {
   try {
@@ -588,72 +562,46 @@ const verifyDL = async (req, res) => {
       return res.status(404).json(new apiresponse(404, null, "User not found"));
     }
 
-    const dlBlob = new Blob([req.file.buffer], { type: "application/pdf" });
-    const formData = new FormData();
-    formData.append("file", dlBlob, "dl.pdf");
+    // 🔹 Upload directly to Cloudinary
+    const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
 
-    const { data } = await axios.post(
-      "https://arjun9036-ridenow.hf.space/validate-dl",
-      formData,
-      {
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        responseType: "text",
-      }
+    // 🔹 Check if DL already exists
+    const existingIndex = user.verifiedDoc.findIndex(
+      (doc) => doc.docType === "DL"
     );
 
-    const validation = typeof data === "string" ? data : JSON.stringify(data);
+    if (existingIndex !== -1) {
+      user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
+      user.verifiedDoc[existingIndex].status = "pending";
+    } else {
+      user.verifiedDoc.push({
+        docType: "DL",
+        docUrl: uploadResult.secure_url,
+        status: "pending",
+      });
+    }
 
-    if (
-      validation.includes("Driving Licence") &&
-      validation.includes("valid and found")
-    ) {
-      const uploadResult = await uploadOnCloudinary(req.file.buffer, "pdf");
+    // ❌ Do NOT auto verify
+    user.isDocVerified = false;
 
-      // 1. Update DL (as before)
-      const existingIndex = user.verifiedDoc.findIndex(
-        (doc) => doc.docType === "DL"
-      );
-      if (existingIndex !== -1) {
-        user.verifiedDoc[existingIndex].docUrl = uploadResult.secure_url;
-        user.verifiedDoc[existingIndex].status = "approved";
-      } else {
-        user.verifiedDoc.push({
+    await user.save();
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        {
           docType: "DL",
           docUrl: uploadResult.secure_url,
-          status: "approved",
-        });
-      }
-
-      // --- 2. THIS IS THE FIX ---
-      // Check the *entire* array for both approved docs
-      const hasApprovedAadhar = user.verifiedDoc.some(
-        (d) => d.docType === "Aadhar" && d.status === "approved"
-      );
-      const hasApprovedDL = user.verifiedDoc.some(
-        (d) => d.docType === "DL" && d.status === "approved"
-      );
-
-      // Only set to true if BOTH are approved
-      user.isDocVerified = hasApprovedAadhar && hasApprovedDL;
-      // --- END OF FIX ---
-
-      await user.save();
-
-      return res
-        .status(200)
-        .json(
-          new apiresponse(
-            200,
-            { docType: "DL", validation },
-            "✅ Driving Licence verified and uploaded successfully"
-          )
-        );
-    } else {
-      // ... (failure response)
-    }
+          status: "pending",
+        },
+        "📄 Driving Licence uploaded successfully. Verification pending."
+      )
+    );
   } catch (error) {
-    // ... (error handling)
+    console.error("APP VERIFY DL FAILED:", error);
+    return res
+      .status(500)
+      .json(new apiresponse(500, null, "Internal Server Error"));
   }
 };
 

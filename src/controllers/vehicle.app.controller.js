@@ -5,8 +5,11 @@
 import { Vehicle } from "../models/vehicle.model.js";
 import { User } from "../models/rentuser.model.js";
 import { apiresponse } from "../utils/apiresponse.js";
+import { apierror } from "../utils/apierror.js";
+import { asynchandler } from "../utils/asynchandler.js";
+import { sendBookingEndedEmail } from "../utils/sendBookingEndedEmail.js";
+import { calculateBookingPrice } from "../utils/calculateBookingprice.js";
 import mongoose from "mongoose";
-import axios from "axios";
 
 /**
  * [APP] Search for available vehicles
@@ -291,138 +294,119 @@ const getAppUserBookings = async (req, res) => {
 };
 
 /**
- * [APP] End a booking
+ * [APP] End a booking — matches website logic
  */
-const endBooking = async (req, res) => {
-  // This logic is complex and can be kept the same, just wrapped
-  const session = await mongoose.startSession();
-  session.startTransaction();
+const endBooking = asynchandler(async (req, res) => {
+  const userId = req.user._id;
+  const { vehicleId } = req.params;
+  const now = new Date();
 
-  try {
-    const userId = req.user._id;
-    const { vehicleId } = req.params;
-    const now = new Date();
+  const user = await User.findById(userId);
+  if (!user) throw new apierror(404, "User not found.");
 
-    const user = await User.findById(userId).session(session);
-    if (!user) throw new Error("User not found.");
+  const vehicle = await Vehicle.findById(vehicleId).populate("host");
+  if (!vehicle) throw new apierror(404, "Vehicle not found.");
 
-    const vehicle = await Vehicle.findById(vehicleId).session(session);
-    if (!vehicle) throw new Error("Vehicle not found.");
+  const activeBooking = vehicle.bookings.find(
+    (b) =>
+      (b.bookingStatus === "confirmed" || b.bookingStatus === "pending") &&
+      b.userId.toString() === userId.toString()
+  );
 
-    const activeBooking = vehicle.bookings.find(
-      (b) =>
-        b.bookingStatus === "confirmed" &&
-        b.userId.toString() === userId.toString()
-    );
-
-    if (!activeBooking) {
-      return res
-        .status(404)
-        .json(new apiresponse(404, null, "No active booking found."));
-    }
-
-    activeBooking.bookingStatus = "completed";
-    activeBooking.endDate = now;
-    vehicle.isAvailable = true;
-    user.isBookedVehicle = false;
-
-    await user.save({ session });
-    await vehicle.save({ session });
-
-    await session.commitTransaction();
-    return res
-      .status(200)
-      .json(new apiresponse(200, activeBooking, "Booking ended successfully."));
-  } catch (error) {
-    await session.abortTransaction();
-    console.error("APP END BOOKING FAILED:", error);
-    return res
-      .status(500)
-      .json(
-        new apiresponse(500, null, error.message || "Failed to end booking.")
-      );
-  } finally {
-    session.endSession();
+  if (!activeBooking) {
+    throw new apierror(400, "No active booking found.");
   }
-};
+
+  const isExpired = new Date(activeBooking.endDate) < now;
+
+  activeBooking.bookingStatus = "completed";
+  activeBooking.returnedAt = now;
+
+  vehicle.isAvailable = true;
+  vehicle.NumberOfBooking = (vehicle.NumberOfBooking || 0) + 1;
+
+  user.isBookedVehicle = false;
+
+  await vehicle.save();
+  await user.save();
+
+  console.log("📨 Ending booking → sending emails");
+  try {
+    await sendBookingEndedEmail({
+      renterEmail: user.email,
+      renterName: user.name,
+      hostEmail: vehicle.host?.email,
+      hostName: vehicle.host?.name,
+      vehicleModel: vehicle.scootyModel,
+      fromDate: activeBooking.startDate.toLocaleDateString(),
+      toDate: activeBooking.endDate.toLocaleDateString(),
+      totalPrice: activeBooking.totalPrice,
+      autoEnded: isExpired,
+    });
+  } catch (emailErr) {
+    console.error("Email sending failed (non-fatal):", emailErr.message);
+  }
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      {
+        vehicleId,
+        bookingId: activeBooking._id,
+        bookingStatus: activeBooking.bookingStatus,
+        autoEnded: isExpired,
+      },
+      isExpired
+        ? "Booking automatically ended and emails sent."
+        : "Booking ended successfully and emails sent."
+    )
+  );
+});
 
 /**
- * [APP] Get Vehicle Details AND Dynamic Price
- * Fetches vehicle data and calls FastAPI to get the price.
+ * [APP] Preview vehicle price — matches website logic (local calculation, no FastAPI)
  */
-const getVehiclePrice = async (req, res) => {
-  try {
-    const { vehicleId } = req.params;
-    const { pickup, drop } = req.query; // Get dates from query
+const previewVehiclePrice = asynchandler(async (req, res) => {
+  const { vehicleId } = req.params;
+  const { fromDate, toDate, fromTime = "10:00", toTime = "18:00" } = req.body;
 
-    if (!vehicleId || !pickup || !drop) {
-      return res
-        .status(400)
-        .json(
-          new apiresponse(
-            400,
-            null,
-            "Vehicle ID, pickup, and drop times are required."
-          )
-        );
-    }
-
-    // 1. Fetch Vehicle Details from our DB
-    const vehicle = await Vehicle.findById(vehicleId)
-      .populate("host", "name email phone profile.photo")
-      .lean(); // .lean() for a plain object
-
-    if (!vehicle) {
-      return res
-        .status(404)
-        .json(new apiresponse(404, null, "Vehicle not found."));
-    }
-
-    // 2. Build Payload for FastAPI (based on your web app code)
-    // Helper function to format as YYYY-MM-DD
-    const formatDate = (date) => date.toISOString().split("T")[0];
-
-    const payload = {
-      city: vehicle.city || vehicle.location?.split(",")[0] || "Vijayawada",
-      model: vehicle.scootyModel,
-      vehicle_type: "Scooter",
-      fuel_type: "Petrol",
-      start_date: formatDate(new Date(pickup)), // <-- FIX
-      end_date: formatDate(new Date(drop)), // <-- FIX
-    };
-
-    // 3. Call FastAPI Pricing Model
-    const { data: priceData } = await axios.post(
-      "https://arjun9036-pricingmodel.hf.space/predict",
-      payload,
-      { headers: { "Content-Type": "application/json" } }
-    );
-
-    // 4. Combine and return everything
-    const response = {
-      vehicleDetails: vehicle,
-      pricingDetails: priceData,
-    };
-
-    return res
-      .status(200)
-      .json(
-        new apiresponse(
-          200,
-          response,
-          "Vehicle and price fetched successfully."
-        )
-      );
-  } catch (error) {
-    console.error(
-      "APP GET VEHICLE PRICE FAILED:",
-      error.response ? error.response.data : error.message
-    );
-    return res
-      .status(500)
-      .json(new apiresponse(500, null, "Failed to fetch vehicle pricing."));
+  if (!fromDate || !toDate) {
+    throw new apierror(400, "Booking dates are required");
   }
-};
+
+  const startDate = new Date(`${fromDate}T${fromTime}:00`);
+  const endDate = new Date(`${toDate}T${toTime}:00`);
+
+  if (endDate <= startDate) {
+    throw new apierror(400, "Invalid date range");
+  }
+
+  const vehicle = await Vehicle.findById(vehicleId);
+
+  if (!vehicle || !vehicle.isAvailable) {
+    throw new apierror(404, "Vehicle not available");
+  }
+
+  const totalPrice = calculateBookingPrice(
+    startDate,
+    endDate,
+    vehicle.pricing
+  );
+
+  const totalDays = Math.ceil(
+    (endDate - startDate) / (1000 * 60 * 60 * 24)
+  );
+
+  return res.status(200).json(
+    new apiresponse(200, {
+      totalPrice,
+      totalDays,
+      weekdayPrice: vehicle.pricing.weekdayPrice,
+      weekendPrice: vehicle.pricing.weekendPrice,
+      averagePerDay: Math.round(totalPrice / totalDays),
+    }, "Price preview calculated")
+  );
+});
 
 export {
   searchVehicles,
@@ -430,5 +414,6 @@ export {
   bookVehicle,
   getAppUserBookings,
   endBooking,
-  getVehiclePrice,
+  previewVehiclePrice,
 };
+
