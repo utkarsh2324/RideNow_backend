@@ -15,18 +15,49 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const registerHost = asynchandler(async (req, res) => {
   const { email, password } = req.body;
+
   if (!email || !password || !validator.isEmail(email)) {
     throw new apierror(400, "Valid email and password are required");
   }
+
   const existedHost = await Host.findOne({ email });
+
   if (existedHost) {
     throw new apierror(409, "Host with this email already exists");
   }
+
   const otp = generateOtp();
   const hashedOtp = await bcrypt.hash(otp, 10);
-  await sendEmail(email, "Your OTP Code", `Your OTP code is ${otp}. It will expire in 10 minutes.`);
-  const host = await Host.create({ email, password, otp: hashedOtp, otpExpiry: new Date(Date.now() + 10 * 60 * 1000) });
-  return res.status(201).json(new apiresponse(200, { hostId: host._id }, "OTP sent to your email. Please verify."));
+
+  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+  // send email
+  await sendEmail({
+    to: email,
+    subject: "RideNow Host Verification OTP",
+    text: `Your OTP code is ${otp}. It will expire in 10 minutes.`,
+    html: `
+      <h2>RideNow Host Verification</h2>
+      <p>Your OTP code is:</p>
+      <h1>${otp}</h1>
+      <p>This OTP will expire in 10 minutes.</p>
+    `,
+  });
+
+  const host = await Host.create({
+    email,
+    password,
+    otp: hashedOtp,
+    otpExpiry,
+  });
+
+  return res.status(201).json(
+    new apiresponse(
+      200,
+      { hostId: host._id, email: host.email },
+      "OTP sent to your email. Please verify."
+    )
+  );
 });
 
 const verifyHostOtp = asynchandler(async (req, res) => {
