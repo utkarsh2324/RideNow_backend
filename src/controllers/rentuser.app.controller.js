@@ -651,6 +651,49 @@ const getDocuments = async (req, res) => {
   }
 };
 
+// ================= Accept Terms & Conditions =================
+const acceptTermsAndConsent = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json(new apiresponse(401, null, "Unauthorized"));
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json(new apiresponse(404, null, "User not found"));
+    }
+
+    // Already accepted → idempotent
+    if (user.termsConsent?.accepted) {
+      return res.status(200).json(
+        new apiresponse(200, user.termsConsent, "Terms already accepted")
+      );
+    }
+
+    user.termsConsent = {
+      accepted: true,
+      acceptedAt: new Date(),
+      version: "v1.0",
+    };
+
+    await user.save({ validateBeforeSave: false });
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        user.termsConsent,
+        "Terms & Conditions accepted successfully"
+      )
+    );
+  } catch (error) {
+    console.error("APP ACCEPT TERMS FAILED:", error);
+    return res
+      .status(500)
+      .json(new apiresponse(500, null, "Internal Server Error"));
+  }
+};
+
 // 4. Export all functions, including new ones
 export {
   uploadProfilePhoto,
@@ -667,4 +710,5 @@ export {
   verifyAadhar,
   verifyDL,
   getDocuments,
+  acceptTermsAndConsent,
 };

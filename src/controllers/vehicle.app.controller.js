@@ -134,100 +134,111 @@ const getVehicleDetails = async (req, res) => {
 };
 
 /**
- * [APP] Book a vehicle
+ * [APP] Book a vehicle — matches website logic
  */
-const bookVehicle = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+const bookVehicle = asynchandler(async (req, res) => {
+  const { vehicleId } = req.params;
+  const { fromDate, toDate, fromTime, toTime } = req.body;
+  const userId = req.user._id;
 
-  try {
-    const { vehicleId } = req.params;
-    const { startDate, endDate, totalPrice } = req.body;
-    const userId = req.user._id;
+  const startDate = new Date(`${fromDate}T${fromTime || '10:00'}:00+05:30`);
+  const endDate = new Date(`${toDate}T${toTime || '18:00'}:00+05:30`);
 
-    if (!startDate || !endDate || !totalPrice) {
-      return res
-        .status(400)
-        .json(
-          new apiresponse(
-            400,
-            null,
-            "Start date, end date, and total price are required."
-          )
-        );
-    }
-
-    const user = await User.findById(userId).session(session);
-    if (!user) {
-      throw new Error("User not found.");
-    }
-    if (user.isBookedVehicle === true) {
-      return res
-        .status(400)
-        .json(
-          new apiresponse(400, null, "You already have an active booking.")
-        );
-    }
-    if (!user.isDocVerified) {
-      return res
-        .status(403)
-        .json(
-          new apiresponse(
-            403,
-            null,
-            "You must verify your documents before booking."
-          )
-        );
-    }
-
-    const vehicle = await Vehicle.findById(vehicleId).session(session);
-    if (!vehicle) {
-      throw new Error("Vehicle not found.");
-    }
-    if (!vehicle.isAvailable) {
-      return res
-        .status(400)
-        .json(new apiresponse(400, null, "This vehicle is not available."));
-    }
-
-    // (Add the date conflict check here again, just to be safe)
-
-    const newBooking = {
-      userId,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      totalPrice,
-      bookingStatus: "confirmed",
-      createdAt: new Date(),
-    };
-
-    vehicle.bookings.push(newBooking);
-    vehicle.isAvailable = false; // Mark as booked
-    user.isBookedVehicle = true; // Mark user as having a booking
-
-    await vehicle.save({ session });
-    await user.save({ session });
-
-    await session.commitTransaction();
-    return res
-      .status(200)
-      .json(new apiresponse(200, newBooking, "Vehicle booked successfully!"));
-  } catch (error) {
-    await session.abortTransaction();
-    console.error("APP BOOK VEHICLE FAILED:", error);
-    return res
-      .status(500)
-      .json(
-        new apiresponse(
-          500,
-          null,
-          error.message || "Booking failed. Please try again."
-        )
-      );
-  } finally {
-    session.endSession();
+  if (endDate <= startDate) {
+    throw new apierror(400, "Invalid booking time range.");
   }
-};
+
+  const user = await User.findById(userId);
+
+  if (!user || !user.isDocVerified) {
+    throw new apierror(403, "User not verified. Please verify your documents first.");
+  }
+
+  // Terms & Consent check
+  if (!user.termsConsent?.accepted) {
+    throw new apierror(
+      403,
+      "Please accept Terms & Conditions before booking a vehicle."
+    );
+  }
+
+  // Only one active booking per user
+  const hasActiveBooking = await Vehicle.exists({
+    "bookings.userId": userId,
+    "bookings.bookingStatus": { $in: ["pending", "confirmed"] },
+  });
+
+  if (hasActiveBooking) {
+    throw new apierror(
+      403,
+      "You already have an active booking. Please complete or cancel it before booking another vehicle."
+    );
+  }
+
+  const vehicle = await Vehicle.findById(vehicleId).populate("host");
+  if (!vehicle || !vehicle.isAvailable) {
+    throw new apierror(400, "Vehicle not available.");
+  }
+
+  // Slot conflict check
+  const conflict = vehicle.bookings.some(
+    (b) =>
+      b.bookingStatus === "confirmed" &&
+      startDate < b.endDate &&
+      endDate > b.startDate
+  );
+
+  if (conflict) {
+    throw new apierror(400, "Vehicle already booked for this slot.");
+  }
+
+  // Price calculation
+  const totalPrice = calculateBookingPrice(
+    startDate,
+    endDate,
+    vehicle.pricing
+  );
+
+  vehicle.bookings.push({
+    userId,
+    startDate,
+    endDate,
+    totalPrice,
+    bookingStatus: "pending",
+  });
+
+  await vehicle.save();
+
+  // Send email to host
+  try {
+    if (vehicle.host?.email) {
+      const { sendHostBookingEmail } = await import("../utils/sendHostBookingEmail.js");
+      await sendHostBookingEmail({
+        hostEmail: vehicle.host.email,
+        hostName: vehicle.host.name,
+        renterName: user.name,
+        renterEmail: user.email,
+        renterPhone: user.phone,
+        vehicleModel: vehicle.scootyModel,
+        fromDate,
+        fromTime,
+        toDate,
+        toTime,
+        totalPrice,
+      });
+    }
+  } catch (emailErr) {
+    console.error("Host email failed (non-fatal):", emailErr.message);
+  }
+
+  return res.status(200).json(
+    new apiresponse(
+      200,
+      { totalPrice },
+      "Booking request sent. Host has been notified via email."
+    )
+  );
+});
 
 /**
  * [APP] Get all bookings for the current user (FIXED)

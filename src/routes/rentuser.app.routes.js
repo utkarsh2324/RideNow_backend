@@ -22,7 +22,8 @@ import {
   verifyAadhar,
   verifyDL,
   getDocuments,
-} from "../controllers/rentuser.app.controller.js"; // <-- Note the '.app'
+  acceptTermsAndConsent,
+} from "../controllers/rentuser.app.controller.js";
 
 const router = express.Router();
 
@@ -59,5 +60,7 @@ router.post(
 // Route for getting document status
 router.get("/documents", verifyJWT, getDocuments);
 
-// --- THIS IS THE FIX ---
+// Route for accepting terms & conditions
+router.post("/accept-terms", verifyJWT, acceptTermsAndConsent);
+
 export default router;
