@@ -43,11 +43,12 @@ const registerUser = async (req, res) => {
     const otp = generateOtp();
     const hashedOtp = await bcrypt.hash(otp, 10);
     const otpExpiry = Date.now() + 10 * 60 * 1000;
-    await sendEmail(
-      email,
-      "Your OTP Code",
-      `Your OTP code is ${otp}. It will expire in 10 minutes.`
-    );
+    await sendEmail({
+      to: email,
+      subject: "Your RideNow OTP",
+      text: `Your OTP is ${otp}. It will expire in 10 minutes.`,
+      html: `<h2>Your OTP is</h2><h1>${otp}</h1><p>It will expire in 10 minutes.</p>`,
+    });
     const user = await User.create({
       email,
       password,
@@ -336,7 +337,12 @@ const forgotPassword = async (req, res) => {
     user.otpExpiry = otpExpiry;
     user.otpPurpose = "forgot";
     await user.save({ validateBeforeSave: false });
-    await sendEmail(user.email, "Password Reset OTP", `Your OTP is ${otp}`);
+    await sendEmail({
+      to: user.email,
+      subject: "Password Reset OTP",
+      text: `Your OTP is ${otp}. It will expire in 15 minutes.`,
+      html: `<h2>Password Reset</h2><h1>${otp}</h1><p>Use this OTP to reset your password. It expires in 15 minutes.</p>`,
+    });
     return res.status(200).json(new apiresponse(200, {}, "OTP sent to email"));
   } catch (error) {
     console.error("APP FORGOT PASSWORD FAILED:", error);
