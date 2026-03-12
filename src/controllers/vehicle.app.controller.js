@@ -31,12 +31,23 @@ const searchVehicles = async (req, res) => {
     const pickupDate = new Date(pickup);
     const dropDate = new Date(drop);
 
-    // Find vehicles that are verified, available, and match the city.
+    // Robustly split the search string into words for partial regex matching
+    const locationParts = city
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map((part) => new RegExp(part, "i"));
+
+    // Find vehicles that are verified, available, and match the city or location.
     // Most importantly, check for booking conflicts.
     const vehicles = await Vehicle.find({
       isAvailable: true,
       isVerified: true,
-      city: new RegExp(city.split(",")[0], "i"), // Search by city name
+      $or: [
+        { city: { $in: locationParts } },
+        { location: { $in: locationParts } },
+        { "pickupLocation.city": { $in: locationParts } },
+        { "pickupLocation.address": { $in: locationParts } }
+      ],
 
       // $nor = no bookings exist that...
       $nor: [
@@ -310,7 +321,7 @@ const endBooking = async (req, res) => {
         .json(new apiresponse(404, null, "No active booking found."));
     }
 
-    activeBooking.bookingStatus = "Completed";
+    activeBooking.bookingStatus = "completed";
     activeBooking.endDate = now;
     vehicle.isAvailable = true;
     user.isBookedVehicle = false;

@@ -20,7 +20,7 @@ const registerUser = asynchandler(async (req, res) => {
   }
 
   if (!validator.isEmail(email)) {
-    throw new apierror(409, "Invalid email format");
+    throw new apierror(400, "Invalid email format");
   }
 
   const existedUser = await User.findOne({ email });
@@ -32,24 +32,21 @@ const registerUser = asynchandler(async (req, res) => {
   const hashedOtp = await bcrypt.hash(otp, 10);
   const otpExpiry = Date.now() + 10 * 60 * 1000;
 
-  await sendEmail({
-    to: email,
-    subject: "Your RideNow OTP",
-    text: `Your OTP is ${otp}. It expires in 10 minutes.`,
-    html: `
-      <h2>RideNow Verification</h2>
-      <p>Your OTP is:</p>
-      <h1>${otp}</h1>
-      <p>This OTP is valid for 10 minutes.</p>
-    `,
-  });
-
   const user = await User.create({
     email,
     password,
     otp: hashedOtp,
     otpExpiry,
     isEmailVerified: false,
+  });
+
+  console.log("Sending OTP email to:", email);
+
+  await sendEmail({
+    to: email,
+    subject: "Your RideNow OTP",
+    text: `Your OTP is ${otp}`,
+    html: `<h2>Your OTP is</h2><h1>${otp}</h1>`,
   });
 
   return res.status(201).json(
