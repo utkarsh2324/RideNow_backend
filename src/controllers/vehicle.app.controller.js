@@ -274,8 +274,7 @@ const getAppUserBookings = async (req, res) => {
           vehicleId: vehicle._id,
           scootyModel: vehicle.scootyModel,
           photos: vehicle.photos,
-          city: vehicle.city,
-          location: vehicle.location,
+          pickupLocation: vehicle.pickupLocation,
           host: vehicle.host, // This is the populated object
           bookingStatus: b.bookingStatus,
           startDate: b.startDate,
