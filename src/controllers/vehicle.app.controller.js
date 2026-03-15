@@ -253,7 +253,7 @@ const getAppUserBookings = async (req, res) => {
       "bookings.userId": userId,
     })
       .populate("host", "name email") // Using exact populate from your web file
-      .select("scootyModel photos city location bookings host"); // Selecting host
+      .select("scootyModel photos city pickupLocation bookings host"); // Selecting host
 
     if (!vehicles || vehicles.length === 0) {
       return res
