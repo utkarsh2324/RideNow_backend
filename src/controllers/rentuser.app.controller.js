@@ -183,68 +183,71 @@ const login = async (req, res) => {
 // ================= Google OAuth Login/Signup =================
 const googleLogin = async (req, res) => {
   try {
-    const { token } = req.body;
-    if (!token) {
+    const { token, idToken } = req.body;
+    const googleToken = idToken || token;
+
+    if (!googleToken) {
       return res
         .status(400)
         .json(new apiresponse(400, null, "Google token is required"));
     }
+
     const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      idToken: googleToken,
+      audience: [
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_ANDROID_CLIENT_ID,
+      ],
     });
-    const { email, name, picture, sub: googleId } = ticket.getPayload();
+
+    const payload = ticket.getPayload();
+    const { email, name, picture, sub: googleId } = payload;
+
     let user = await User.findOne({ email });
+
     if (!user) {
       user = await User.create({
         email,
-        name: name,
+        name,
         profile: { photo: picture },
-        googleId: googleId,
+        googleId,
         authProvider: "google",
         isEmailVerified: true,
       });
     } else if (user.authProvider !== "google") {
-      return res
-        .status(409)
-        .json(
-          new apiresponse(
-            409,
-            null,
-            "This email is registered with a password. Please log in using your password."
-          )
-        );
+      return res.status(409).json(
+        new apiresponse(
+          409,
+          null,
+          "This email is registered with a password. Please log in using your password."
+        )
+      );
     }
+
     const accessToken = user.generateAccessToken();
     const refreshToken = user.generateRefreshToken();
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
+
     const loggedInUser = await User.findById(user._id).select(
       "-password -refreshToken -otp"
     );
-    const options = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-    };
-    const responseData = { user: loggedInUser, accessToken, refreshToken };
-    return res
-      .status(200)
-      .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", refreshToken, options)
-      .json(new apiresponse(200, responseData, "Google login successful"));
+
+    return res.status(200).json(
+      new apiresponse(
+        200,
+        { user: loggedInUser, accessToken, refreshToken },
+        "Google login successful"
+      )
+    );
   } catch (error) {
     console.error("APP GOOGLE LOGIN FAILED:", error);
     return res
-      .status(500)
-      .json(
-        new apiresponse(
-          500,
-          null,
-          "An internal server error occurred during Google login"
-        )
-      );
+      .status(401)
+      .json(new apiresponse(401, null, "Invalid Google token"));
   }
 };
+
 
 // ================= Logout =================
 const logout = async (req, res) => {
