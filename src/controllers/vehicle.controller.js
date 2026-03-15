@@ -284,7 +284,11 @@ const toggleVehicleAvailability = asynchandler(async (req, res) => {
   
     const requestedStart = new Date(`${fromDate}T${fromTime}:00`);
     const requestedEnd = new Date(`${toDate}T${toTime}:00`);
-  
+    const now = new Date();
+
+    if (requestedStart < now) {
+      throw new apierror(400, "Pickup time cannot be in the past.");
+    }
     if (requestedStart >= requestedEnd) {
       throw new apierror(400, "Invalid date/time range.");
     }
