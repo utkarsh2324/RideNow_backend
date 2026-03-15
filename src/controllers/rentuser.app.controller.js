@@ -16,7 +16,7 @@ import validator from "validator";
 import { generateOtp } from "../utils/generateotp.js";
 import { sendEmail } from "../utils/sendemail.js";
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const client = new OAuth2Client();
 
 // ================= Normal SignUp =================
 const registerUser = async (req, res) => {
@@ -185,6 +185,10 @@ const googleLogin = async (req, res) => {
   try {
     const { token, idToken } = req.body;
     const googleToken = idToken || token;
+    const googleAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID,
+    ].filter(Boolean);
 
     if (!googleToken) {
       return res
@@ -192,16 +196,25 @@ const googleLogin = async (req, res) => {
         .json(new apiresponse(400, null, "Google token is required"));
     }
 
+    if (!googleAudiences.length) {
+      return res
+        .status(500)
+        .json(new apiresponse(500, null, "Google OAuth is not configured"));
+    }
+
     const ticket = await client.verifyIdToken({
       idToken: googleToken,
-      audience: [
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_ANDROID_CLIENT_ID,
-      ],
+      audience: googleAudiences,
     });
 
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
+
+    if (!email) {
+      return res
+        .status(400)
+        .json(new apiresponse(400, null, "Google account email is required"));
+    }
 
     let user = await User.findOne({ email });
 
