@@ -17,8 +17,10 @@ const hostSchema = new Schema(
       lowercase: true,
       trim: true,
     },
-    upiid:{
-      type:String,
+    upiid: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
     phone: {
       type: String,
