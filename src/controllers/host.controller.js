@@ -103,7 +103,7 @@ const loginHost = asynchandler(async (req, res) => {
     .json(
       new apiresponse(
         200,
-        { user, accessToken },
+        { host, accessToken },
         "User logged in successfully"
       )
     );
