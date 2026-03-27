@@ -4,7 +4,7 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ⚠️ MUST be publicly accessible image (PNG/JPG preferred)
-const logoUrl = "https://ridenow.website/email-assets/logo.png";
+const logoUrl = "https://ridenow.website/email-assests/logo.png";
 const websiteUrl = "https://ridenow.website";
 
 const wrapWithBaseTemplate = (innerHtml = "") => {
